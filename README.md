@@ -1,32 +1,35 @@
-<div align="center">
+<p align="center">
+  <img src="./miroshark-nobg.png" alt="MiroShark" width="120" />
+</p>
 
-<img src="./miroshark-banner.jpg" alt="MiroShark Logo" width="75%"/>
+<h1 align="center">MiroShark</h1>
 
-<em>A Simple and Universal Swarm Intelligence Engine — Run Locally or with Any Cloud API</em>
+<p align="center">
+  <strong>A Simple and Universal Swarm Intelligence Engine — Run Locally or with Any Cloud API</strong><br>
+  Multi-agent simulation engine: upload any document (press release, policy draft, financial report), and it generates hundreds of AI agents with unique personalities that simulate public reaction on social media — posts, arguments, opinion shifts — hour by hour. Runs on Neo4j for the knowledge graph and any OpenAI-compatible API for inference.
+</p>
 
-</div>
+<p align="center">
+  <img src="./screen1.png" alt="MiroShark Demo" />
+</p>
 
-## What is this?
-
-**MiroShark** is a multi-agent simulation engine: upload any document (press release, policy draft, financial report), and it generates hundreds of AI agents with unique personalities that simulate public reaction on social media — posts, arguments, opinion shifts — hour by hour.
-
-Runs on **Neo4j** for the knowledge graph and any **OpenAI-compatible API** for inference. Use local Ollama (no cloud needed) or any cloud provider.
+---
 
 ## Screenshots
 
 <div align="center">
 <table>
 <tr>
-<td><img src="./screen1.png" width="100%"/></td>
 <td><img src="./screen2.png" width="100%"/></td>
-</tr>
-<tr>
 <td><img src="./screen3.png" width="100%"/></td>
-<td><img src="./screen4.png" width="100%"/></td>
 </tr>
 <tr>
+<td><img src="./screen4.png" width="100%"/></td>
 <td><img src="./screen5.png" width="100%"/></td>
+</tr>
+<tr>
 <td><img src="./screen6.png" width="100%"/></td>
+<td></td>
 </tr>
 </table>
 </div>
@@ -43,7 +46,7 @@ Runs on **Neo4j** for the knowledge graph and any **OpenAI-compatible API** for 
 
 ### Prerequisites
 
-- An OpenAI-compatible API key *(including OpenRouter, OpenAI, Anthropic, etc.)* **or** Ollama for local inference
+- An OpenAI-compatible API key *(including OpenRouter, OpenAI, Anthropic, etc.)*, Ollama for local inference, **or** Claude Code CLI
 - Python 3.11+, Node.js 18+, Neo4j 5.15+ **or** Docker & Docker Compose
 
 ---
@@ -123,6 +126,57 @@ npm run dev
 
 ---
 
+### Option D: Claude Code (no API key needed)
+
+Use your Claude Pro/Max subscription as the LLM backend via the local Claude Code CLI. No API key or GPU required — just a logged-in `claude` installation.
+
+```bash
+# 1. Install Claude Code (if not already)
+npm install -g @anthropic-ai/claude-code
+
+# 2. Log in (opens browser)
+claude
+
+# 3. Start Neo4j
+docker run -d --name neo4j \
+  -p 7474:7474 -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/miroshark \
+  neo4j:5.15-community
+
+# 4. Configure
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```bash
+LLM_PROVIDER=claude-code
+# Optional: pick a specific model (default uses your Claude Code default)
+# CLAUDE_CODE_MODEL=claude-sonnet-4-20250514
+```
+
+You still need embeddings — use a cloud provider or local Ollama for those (Claude Code doesn't support embeddings). You also still need Ollama or a cloud API for the CAMEL-AI simulation rounds (see coverage table below).
+
+```bash
+npm run setup:all && npm run dev
+```
+
+> **What's covered:** When `LLM_PROVIDER=claude-code`, all MiroShark services route through Claude Code — graph building (ontology, NER), agent profile generation, simulation config, report generation, and persona chat. The only exception is the CAMEL-AI simulation engine itself, which requires an OpenAI-compatible API (Ollama or cloud) since it manages its own LLM connections internally.
+
+| Component | Claude Code | Needs separate LLM |
+|---|---|---|
+| Graph building (ontology + NER) | Yes | — |
+| Agent profile generation | Yes | — |
+| Simulation config generation | Yes | — |
+| Report generation | Yes | — |
+| Persona chat | Yes | — |
+| CAMEL-AI simulation rounds | — | Yes (Ollama or cloud) |
+| Embeddings | — | Yes (Ollama or cloud) |
+
+> **Performance note:** Each LLM call spawns a `claude -p` subprocess (~2-5s overhead). Best for small simulations or hybrid mode — use Ollama/cloud for the high-volume simulation rounds, Claude Code for everything else.
+
+---
+
 ## Configuration
 
 ### Recommended Models
@@ -175,9 +229,13 @@ All settings live in `.env` (copy from `.env.example`):
 
 ```bash
 # LLM
-LLM_API_KEY=ollama
+LLM_PROVIDER=openai                # "openai" (default) or "claude-code"
+LLM_API_KEY=ollama                  # Not needed for claude-code mode
 LLM_BASE_URL=http://localhost:11434/v1
 LLM_MODEL_NAME=qwen3.5:27b
+
+# Claude Code mode (only when LLM_PROVIDER=claude-code)
+# CLAUDE_CODE_MODEL=claude-sonnet-4-20250514
 
 # Neo4j
 NEO4J_URI=bolt://localhost:7687

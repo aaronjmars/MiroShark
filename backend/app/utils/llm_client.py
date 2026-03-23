@@ -1,6 +1,7 @@
 """
 LLM client wrapper
-Unified API calls using OpenAI format
+Unified API calls using OpenAI format.
+Supports OpenAI-compatible APIs and Claude Code CLI.
 """
 
 import json
@@ -12,9 +13,25 @@ from openai import OpenAI
 from ..config import Config
 
 
+def create_llm_client(
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    timeout: float = 300.0
+):
+    """
+    Factory: returns ClaudeCodeClient when LLM_PROVIDER=claude-code,
+    otherwise returns the standard LLMClient.
+    """
+    if Config.LLM_PROVIDER == 'claude-code':
+        from .claude_code_client import ClaudeCodeClient
+        return ClaudeCodeClient(model=model, timeout=timeout)
+    return LLMClient(api_key=api_key, base_url=base_url, model=model, timeout=timeout)
+
+
 class LLMClient:
-    """LLM client"""
-    
+    """LLM client using OpenAI-compatible APIs"""
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -41,7 +58,7 @@ class LLMClient:
     def _is_ollama(self) -> bool:
         """Check if we're talking to an Ollama server."""
         return '11434' in (self.base_url or '')
-    
+
     def chat(
         self,
         messages: List[Dict[str, str]],
@@ -67,7 +84,7 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        
+
         if response_format:
             kwargs["response_format"] = response_format
 
@@ -82,7 +99,7 @@ class LLMClient:
         # Some models (e.g., MiniMax M2.5) include <think> reasoning content in the content field, which needs to be removed
         content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
         return content
-    
+
     def chat_json(
         self,
         messages: List[Dict[str, str]],
@@ -116,4 +133,3 @@ class LLMClient:
             return json.loads(cleaned_response)
         except json.JSONDecodeError:
             raise ValueError(f"Invalid JSON format returned by LLM: {cleaned_response}")
-

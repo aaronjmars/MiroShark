@@ -15,7 +15,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 
 from ..utils.logger import get_logger
-from ..utils.llm_client import LLMClient
+from ..utils.llm_client import LLMClient, create_llm_client
 from ..storage import GraphStorage
 
 logger = get_logger('miroshark.graph_tools')
@@ -402,7 +402,7 @@ class GraphToolsService:
     def llm(self) -> LLMClient:
         """Lazy initialization of LLM client"""
         if self._llm_client is None:
-            self._llm_client = LLMClient()
+            self._llm_client = create_llm_client()
         return self._llm_client
 
     # ========== Basic Tools ==========

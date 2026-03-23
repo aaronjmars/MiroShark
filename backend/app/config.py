@@ -28,6 +28,8 @@ class Config:
     JSON_AS_ASCII = False
     
     # LLM configuration (unified OpenAI format)
+    # LLM_PROVIDER: "openai" (default, any OpenAI-compatible API) or "claude-code" (local CLI)
+    LLM_PROVIDER = os.environ.get('LLM_PROVIDER', 'openai')
     LLM_API_KEY = os.environ.get('LLM_API_KEY')
     LLM_BASE_URL = os.environ.get('LLM_BASE_URL', 'https://api.openai.com/v1')
     LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', 'gpt-4o-mini')
@@ -77,7 +79,7 @@ class Config:
     def validate(cls):
         """Validate required configuration"""
         errors = []
-        if not cls.LLM_API_KEY:
+        if cls.LLM_PROVIDER != 'claude-code' and not cls.LLM_API_KEY:
             errors.append("LLM_API_KEY is not configured")
         if not cls.NEO4J_URI:
             errors.append("NEO4J_URI is not configured")

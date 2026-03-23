@@ -9,7 +9,7 @@ entities and relations from text chunks, guided by the graph's ontology.
 import logging
 from typing import Dict, Any, List, Optional
 
-from ..utils.llm_client import LLMClient
+from ..utils.llm_client import LLMClient, create_llm_client
 
 logger = logging.getLogger('miroshark.ner_extractor')
 
@@ -47,7 +47,7 @@ class NERExtractor:
     """Extract entities and relations from text using local LLM."""
 
     def __init__(self, llm_client: Optional[LLMClient] = None, max_retries: int = 2):
-        self.llm = llm_client or LLMClient()
+        self.llm = llm_client or create_llm_client()
         self.max_retries = max_retries
 
     def extract(self, text: str, ontology: Dict[str, Any]) -> Dict[str, Any]:

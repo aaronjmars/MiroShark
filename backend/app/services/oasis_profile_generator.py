@@ -15,9 +15,8 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from openai import OpenAI
-
 from ..config import Config
+from ..utils.llm_client import create_llm_client
 from ..utils.logger import get_logger
 from .entity_reader import EntityNode
 from ..storage import GraphStorage
@@ -185,16 +184,11 @@ class OasisProfileGenerator:
         storage: Optional[GraphStorage] = None,
         graph_id: Optional[str] = None
     ):
-        self.api_key = api_key or Config.LLM_API_KEY
-        self.base_url = base_url or Config.LLM_BASE_URL
         self.model_name = model_name or Config.LLM_MODEL_NAME
-
-        if not self.api_key:
-            raise ValueError("LLM_API_KEY is not configured")
-
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url
+        self.llm = create_llm_client(
+            api_key=api_key,
+            base_url=base_url,
+            model=model_name,
         )
 
         # GraphStorage for hybrid search enrichment
@@ -471,48 +465,39 @@ class OasisProfileGenerator:
         
         for attempt in range(max_attempts):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=[
-                        {"role": "system", "content": self._get_system_prompt(is_individual)},
-                        {"role": "user", "content": prompt}
-                    ],
+                messages = [
+                    {"role": "system", "content": self._get_system_prompt(is_individual)},
+                    {"role": "user", "content": prompt}
+                ]
+                content = self.llm.chat(
+                    messages=messages,
+                    temperature=0.7 - (attempt * 0.1),
                     response_format={"type": "json_object"},
-                    temperature=0.7 - (attempt * 0.1)  # Lower temperature with each retry
-                    # Do not set max_tokens, let LLM generate freely
                 )
-                
-                content = response.choices[0].message.content
-                
-                # Check if truncated (finish_reason is not 'stop')
-                finish_reason = response.choices[0].finish_reason
-                if finish_reason == 'length':
-                    logger.warning(f"LLM output truncated (attempt {attempt+1}), attempting to fix...")
-                    content = self._fix_truncated_json(content)
-                
+
                 # Try to parse JSON
                 try:
                     result = json.loads(content)
-                    
+
                     # Validate required fields
                     if "bio" not in result or not result["bio"]:
                         result["bio"] = entity_summary[:200] if entity_summary else f"{entity_type}: {entity_name}"
                     if "persona" not in result or not result["persona"]:
                         result["persona"] = entity_summary or f"{entity_name} is a {entity_type}."
-                    
+
                     return result
-                    
+
                 except json.JSONDecodeError as je:
                     logger.warning(f"JSON parsing failed (attempt {attempt+1}): {str(je)[:80]}")
-                    
+
                     # Try to fix JSON
                     result = self._try_fix_json(content, entity_name, entity_type, entity_summary)
                     if result.get("_fixed"):
                         del result["_fixed"]
                         return result
-                    
+
                     last_error = je
-                    
+
             except Exception as e:
                 logger.warning(f"LLM call failed (attempt {attempt+1}): {str(e)[:80]}")
                 last_error = e
