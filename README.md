@@ -2,7 +2,7 @@
 
 <img src="./miroshark-banner.jpg" alt="MiroShark Logo" width="75%"/>
 
-<em>A Simple and Universal Swarm Intelligence Engine, Predicting Anything — Fully Local, No Cloud APIs Required</em>
+<em>A Simple and Universal Swarm Intelligence Engine, Predicting Anything — Run Locally or with Any Cloud API</em>
 
 </div>
 
@@ -10,7 +10,7 @@
 
 **MiroShark** is a multi-agent simulation engine: upload any document (press release, policy draft, financial report), and it generates hundreds of AI agents with unique personalities that simulate the public reaction on social media. Posts, arguments, opinion shifts — hour by hour.
 
-MiroShark runs **entirely on local infrastructure** — Neo4j for the knowledge graph, Ollama for LLM inference and embeddings. No cloud API keys required.
+MiroShark runs on **Neo4j** for the knowledge graph and any **OpenAI-compatible API** for LLM inference and embeddings — use local Ollama (no cloud needed) or cloud providers like OpenRouter, OpenAI, or Anthropic.
 
 > All you need to do: upload seed materials and describe your prediction requirements in natural language.
 > MiroShark will return: a detailed prediction report and a high-fidelity digital world you can deeply interact with.
@@ -37,17 +37,18 @@ MiroShark runs **entirely on local infrastructure** — Neo4j for the knowledge 
 ## Workflow
 
 1. **Graph Build** — Extracts entities (people, companies, events) and relationships from your document. Builds a knowledge graph with individual and group memory via Neo4j.
-2. **Env Setup** — Generates hundreds of agent personas, each with unique personality, opinion bias, reaction speed, influence level, and memory of past events.
-3. **Simulation** — Agents interact on simulated social platforms: posting, replying, arguing, shifting opinions. The system tracks sentiment evolution, topic propagation, and influence dynamics in real time.
-4. **Report** — A ReportAgent analyzes the post-simulation environment, interviews a focus group of agents, searches the knowledge graph for evidence, and generates a structured analysis.
-5. **Interaction** — Chat with any agent from the simulated world. Ask them why they posted what they posted. Full memory and personality persists.
+2. **Agent Setup** — Generates hundreds of agent personas, each with unique personality, opinion bias, reaction speed, influence level, and memory of past events.
+3. **Simulation** — Agents interact on simulated social platforms: posting, replying, arguing, shifting opinions. The system tracks sentiment evolution, topic propagation, and influence dynamics in real time. Supports **pause, resume, and restart** — simulations survive interruptions.
+4. **Report** — A ReportAgent analyzes the post-simulation environment, interviews a focus group of agents, searches the knowledge graph for evidence, and generates a structured analysis. Reports are cached and reused.
+5. **Interaction** — Chat with any agent from the simulated world via **persona chat** or send **group questions** to multiple agents at once. Click any agent to view their full profile and simulation activity. The environment auto-restarts for interviews if needed.
 
 ## Quick Start
 
 ### Prerequisites
 
 - Docker & Docker Compose (recommended), **or**
-- Python 3.11+, Node.js 18+, Neo4j 5.15+, Ollama
+- Python 3.11+, Node.js 18+, Neo4j 5.15+
+- Ollama (for local inference) **or** an OpenRouter/OpenAI API key (for cloud inference)
 
 ### Option A: Docker (easiest)
 
@@ -162,7 +163,7 @@ EMBEDDING_DIMENSIONS=768
 │    ┌─────────▼─────────┐                │
 │    │   Neo4jStorage     │                │
 │    │  ┌───────────────┐ │                │
-│    │  │ EmbeddingService│ ← Ollama       │
+│    │  │ EmbeddingService│ ← Ollama/OpenAI │
 │    │  │ NERExtractor   │ ← Ollama LLM   │
 │    │  │ SearchService  │ ← Hybrid search │
 │    │  └───────────────┘ │                │
@@ -178,12 +179,16 @@ EMBEDDING_DIMENSIONS=768
 **Key design decisions:**
 
 - `GraphStorage` is an abstract interface — swap Neo4j for any other graph DB by implementing one class
+- `EmbeddingService` supports both Ollama (`/api/embed`) and OpenAI-compatible (`/v1/embeddings`) providers
 - Dependency injection via Flask `app.extensions` — no global singletons
 - Hybrid search: 0.7 × vector similarity + 0.3 × BM25 keyword search
-- Synchronous NER/RE extraction via local LLM
+- Simulation supports pause/resume/restart with action log persistence
+- Auto-restart environment for interviews when simulation is not running
 - All original simulation tools (InsightForge, Panorama, Agent Interviews) preserved
 
 ## Hardware Requirements
+
+**Local mode (Ollama):**
 
 | Component | Minimum | Recommended |
 |---|---|---|
@@ -193,6 +198,8 @@ EMBEDDING_DIMENSIONS=768
 | CPU | 4 cores | 8+ cores |
 
 CPU-only mode works but is significantly slower for LLM inference. For lighter setups, use `qwen2.5:14b` or `qwen2.5:7b`.
+
+**Cloud mode (OpenRouter/OpenAI):** No GPU required — just Neo4j and an API key. Any machine with 4 GB RAM can run the frontend + backend.
 
 ## Use Cases
 
