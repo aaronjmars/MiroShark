@@ -353,6 +353,68 @@ WEB_ENRICHMENT_ENABLED=true
 
 ---
 
+## MCP Server
+
+MiroShark includes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that lets Claude Code, Cursor, Windsurf, and any MCP-compatible agent trigger simulations, query results, and inspect agent states programmatically.
+
+### Available Tools
+
+| Tool | Description |
+|---|---|
+| `list_simulations` | List all simulations, optionally filtered by project |
+| `create_simulation` | Create a new simulation for a project |
+| `get_simulation_status` | Get preparation progress, run state, and action counts |
+| `get_simulation_results` | Get actions, agent stats, config, and timeline data |
+
+### Setup
+
+Install the MCP Python SDK alongside existing dependencies:
+
+```bash
+cd backend
+pip install mcp
+```
+
+### Usage
+
+**stdio transport** (for Claude Code, Cursor, etc.):
+
+```bash
+python backend/mcp_server.py
+```
+
+**SSE transport** (for network access):
+
+```bash
+pip install uvicorn starlette
+python backend/mcp_server.py --sse --port 8765
+```
+
+### Claude Code Configuration
+
+Add to your Claude Code MCP settings (`~/.claude/settings.json` or project `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "miroshark": {
+      "command": "python",
+      "args": ["backend/mcp_server.py"],
+      "cwd": "/path/to/MiroShark"
+    }
+  }
+}
+```
+
+Then use natural language in Claude Code:
+
+> "List all simulations" → calls `list_simulations`
+> "Create a simulation for project proj_abc123" → calls `create_simulation`
+> "What's the status of sim_def456?" → calls `get_simulation_status`
+> "Show me the results from sim_def456 — just Twitter actions" → calls `get_simulation_results`
+
+---
+
 ## Hardware Requirements
 
 **Local (Ollama):**
