@@ -4,7 +4,12 @@ Step 2: Entity reading and filtering, OASIS simulation preparation and execution
 """
 
 import os
+import io
+import csv
+import json
 import traceback
+import tempfile
+from datetime import datetime
 from flask import request, jsonify, send_file, current_app
 
 from . import simulation_bp
@@ -2642,6 +2647,141 @@ def close_simulation_env():
         
     except Exception as e:
         logger.error(f"Failed to shut down environment: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
+# ============== Data Export Endpoints ==============
+
+@simulation_bp.route('/<simulation_id>/export', methods=['GET'])
+def export_simulation_data(simulation_id: str):
+    """
+    Export simulation data as JSON or CSV file download.
+
+    Query parameters:
+        format: Export format — 'json' (default) or 'csv'
+        include: Comma-separated data sections to include.
+                 Options: actions,posts,timeline,agent_stats,metadata
+                 Default: all sections
+
+    Returns:
+        File download (application/json or text/csv)
+    """
+    try:
+        export_format = request.args.get('format', 'json').lower()
+        include_raw = request.args.get('include', 'actions,posts,timeline,agent_stats,metadata')
+        include_sections = {s.strip() for s in include_raw.split(',')}
+
+        if export_format not in ('json', 'csv'):
+            return jsonify({
+                "success": False,
+                "error": "Unsupported format. Use 'json' or 'csv'."
+            }), 400
+
+        export_data = {}
+
+        # --- Metadata ---
+        if 'metadata' in include_sections:
+            manager = SimulationManager()
+            state = manager.get_simulation(simulation_id)
+            run_state = SimulationRunner.get_run_state(simulation_id)
+            export_data['metadata'] = {
+                "simulation_id": simulation_id,
+                "exported_at": datetime.utcnow().isoformat(),
+                "status": state.status.value if state else None,
+                "project_id": state.project_id if state else None,
+                "run_state": run_state.to_dict() if run_state else None,
+            }
+
+        # --- Actions ---
+        if 'actions' in include_sections:
+            actions = SimulationRunner.get_all_actions(simulation_id)
+            export_data['actions'] = [a.to_dict() for a in actions]
+
+        # --- Timeline ---
+        if 'timeline' in include_sections:
+            export_data['timeline'] = SimulationRunner.get_timeline(simulation_id)
+
+        # --- Agent Stats ---
+        if 'agent_stats' in include_sections:
+            export_data['agent_stats'] = SimulationRunner.get_agent_stats(simulation_id)
+
+        # --- Posts (both platforms) ---
+        if 'posts' in include_sections:
+            import sqlite3
+            sim_dir = os.path.join(
+                os.path.dirname(__file__),
+                f'../../uploads/simulations/{simulation_id}'
+            )
+            all_posts = []
+            for platform in ('twitter', 'reddit'):
+                db_path = os.path.join(sim_dir, f"{platform}_simulation.db")
+                if os.path.exists(db_path):
+                    try:
+                        conn = sqlite3.connect(db_path)
+                        conn.row_factory = sqlite3.Row
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT * FROM post ORDER BY created_at DESC")
+                        for row in cursor.fetchall():
+                            post = dict(row)
+                            post['platform'] = platform
+                            all_posts.append(post)
+                        conn.close()
+                    except sqlite3.OperationalError:
+                        pass
+            export_data['posts'] = all_posts
+
+        # --- Build response ---
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        filename_base = f"miroshark_export_{simulation_id[:12]}_{timestamp}"
+
+        if export_format == 'json':
+            buf = io.BytesIO()
+            buf.write(json.dumps(export_data, indent=2, default=str, ensure_ascii=False).encode('utf-8'))
+            buf.seek(0)
+            return send_file(
+                buf,
+                mimetype='application/json',
+                as_attachment=True,
+                download_name=f"{filename_base}.json"
+            )
+
+        # CSV: flatten actions into a single table (the most useful tabular view)
+        rows = export_data.get('actions', [])
+        if not rows:
+            return jsonify({
+                "success": False,
+                "error": "No action data available to export as CSV"
+            }), 404
+
+        fieldnames = ['round_num', 'timestamp', 'platform', 'agent_id',
+                      'agent_name', 'action_type', 'action_args', 'result', 'success']
+
+        string_buf = io.StringIO()
+        writer = csv.DictWriter(string_buf, fieldnames=fieldnames, extrasaction='ignore')
+        writer.writeheader()
+        for row in rows:
+            row_copy = dict(row)
+            # Serialize nested dicts to JSON strings for CSV
+            if isinstance(row_copy.get('action_args'), dict):
+                row_copy['action_args'] = json.dumps(row_copy['action_args'], ensure_ascii=False)
+            writer.writerow(row_copy)
+
+        buf = io.BytesIO()
+        buf.write(string_buf.getvalue().encode('utf-8'))
+        buf.seek(0)
+        return send_file(
+            buf,
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=f"{filename_base}.csv"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to export simulation data: {str(e)}")
         return jsonify({
             "success": False,
             "error": str(e),

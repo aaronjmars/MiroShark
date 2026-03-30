@@ -189,6 +189,18 @@ export const getEnvStatus = (data) => {
 }
 
 /**
+ * Export simulation data as JSON or CSV file download
+ * @param {string} simulationId
+ * @param {string} format - 'json' or 'csv'
+ */
+export const exportSimulationData = (simulationId, format = 'json') => {
+  return service.get(`/api/simulation/${simulationId}/export`, {
+    params: { format },
+    responseType: 'blob'
+  })
+}
+
+/**
  * Batch interview Agents
  * @param {Object} data - { simulation_id, interviews: [{ agent_id, prompt }] }
  */
