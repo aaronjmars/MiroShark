@@ -9,6 +9,10 @@ import ipaddress
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 
+import requests
+
+MAX_RESPONSE_BYTES = 5 * 1024 * 1024  # 5 MB
+
 
 class _TextExtractor(HTMLParser):
     """Simple HTML parser that strips tags and extracts readable body text."""
@@ -74,21 +78,74 @@ class _TextExtractor(HTMLParser):
         return self._title.strip()
 
 
-def _block_private_ip(hostname: str) -> None:
-    """
-    Raises ValueError if the hostname resolves to a private/loopback address.
-    Prevents SSRF attacks.
-    """
+def _check_ip(ip_str: str) -> None:
+    """Raises ValueError if the IP is private/loopback/reserved."""
+    addr = ipaddress.ip_address(ip_str)
+    if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+        raise ValueError(
+            f"Requests to private or internal addresses are not allowed ({ip_str})"
+        )
+
+
+def _validate_url(url: str) -> str:
+    """Validate scheme/host and check resolved IP. Returns the hostname."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ('http', 'https'):
+        raise ValueError(
+            f"Only http and https URLs are supported (got '{parsed.scheme}')"
+        )
+    if not parsed.netloc:
+        raise ValueError("Invalid URL: missing host")
+    host = parsed.netloc.split(':')[0]
     try:
-        ip_str = socket.gethostbyname(hostname)
-        addr = ipaddress.ip_address(ip_str)
-        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
-            raise ValueError(
-                f"Requests to private or internal addresses are not allowed ({ip_str})"
-            )
+        _check_ip(socket.gethostbyname(host))
     except socket.gaierror:
-        # Let requests handle DNS errors
-        pass
+        pass  # let requests surface the DNS error
+    return host
+
+
+def _safe_get(url: str, headers: dict, timeout: int) -> requests.Response:
+    """
+    GET with manual redirect following — each hop is IP-checked to prevent
+    SSRF via redirect to internal addresses. Also streams the response and
+    enforces a size cap so a large file can't OOM the server.
+    """
+    max_redirects = 5
+    current_url = url
+
+    for _ in range(max_redirects + 1):
+        _validate_url(current_url)
+
+        resp = requests.get(
+            current_url, headers=headers, timeout=timeout,
+            allow_redirects=False, stream=True,
+        )
+
+        if resp.is_redirect and 'location' in resp.headers:
+            current_url = resp.headers['location']
+            resp.close()
+            continue
+
+        resp.raise_for_status()
+
+        # Enforce size limit while streaming
+        chunks = []
+        downloaded = 0
+        for chunk in resp.iter_content(chunk_size=64 * 1024):
+            downloaded += len(chunk)
+            if downloaded > MAX_RESPONSE_BYTES:
+                resp.close()
+                raise ValueError(
+                    f"Response exceeds {MAX_RESPONSE_BYTES // (1024 * 1024)} MB size limit"
+                )
+            chunks.append(chunk)
+        resp.close()
+
+        # Reconstruct a response-like object with the full content
+        resp._content = b''.join(chunks)
+        return resp
+
+    raise ValueError("Too many redirects")
 
 
 def fetch_url_text(url: str, timeout: int = 15) -> dict:
@@ -110,20 +167,7 @@ def fetch_url_text(url: str, timeout: int = 15) -> dict:
         ValueError: For invalid URLs, blocked addresses, or unextractable content.
         requests.exceptions.RequestException: For HTTP/network errors.
     """
-    import requests
-
-    # Validate scheme
-    parsed = urlparse(url)
-    if parsed.scheme not in ('http', 'https'):
-        raise ValueError(
-            f"Only http and https URLs are supported (got '{parsed.scheme}')"
-        )
-    if not parsed.netloc:
-        raise ValueError("Invalid URL: missing host")
-
-    # Block private/internal addresses (SSRF prevention)
-    host = parsed.netloc.split(':')[0]
-    _block_private_ip(host)
+    _validate_url(url)
 
     headers = {
         'User-Agent': (
@@ -134,12 +178,9 @@ def fetch_url_text(url: str, timeout: int = 15) -> dict:
         'Accept-Language': 'en-US,en;q=0.5',
     }
 
-    response = requests.get(
-        url, headers=headers, timeout=timeout,
-        allow_redirects=True, stream=False
-    )
-    response.raise_for_status()
+    response = _safe_get(url, headers, timeout)
 
+    parsed = urlparse(url)
     content_type = response.headers.get('content-type', '').lower()
 
     # Plain text or markdown

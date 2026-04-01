@@ -3,6 +3,7 @@ Graph-related API routes
 Uses project context mechanism with server-side persistent state
 """
 
+import json
 import os
 import traceback
 import threading
@@ -129,8 +130,6 @@ def generate_ontology():
         }
     """
     try:
-        import json as _json
-
         logger.info("=== Starting ontology generation ===")
 
         # Get parameters
@@ -152,7 +151,7 @@ def generate_ontology():
         url_docs = []
         if url_docs_raw:
             try:
-                url_docs = _json.loads(url_docs_raw)
+                url_docs = json.loads(url_docs_raw)
             except Exception:
                 logger.warning("Failed to parse url_docs field, ignoring")
 
