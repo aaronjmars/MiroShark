@@ -107,6 +107,38 @@ When generating personas for public figures (politicians, CEOs, founders) or whe
 
 ## Quick Start
 
+### One-Click Cloud Deploy
+
+Deploy MiroShark to the cloud in under 3 minutes — no local setup required.
+
+**Before you deploy, create:**
+1. A free [Neo4j Aura](https://neo4j.com/cloud/aura-free/) instance — grab the `NEO4J_URI` (starts with `neo4j+s://`) and password from the dashboard.
+2. An [OpenRouter](https://openrouter.ai/) API key — used for LLM calls and embeddings. Free credits available on signup.
+
+**Railway** (recommended — includes persistent storage and a free trial):
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.app/new/template?template=https://github.com/aaronjmars/MiroShark)
+
+After clicking deploy, set these environment variables in the Railway dashboard:
+
+| Variable | Value |
+|---|---|
+| `LLM_API_KEY` | Your OpenRouter key (`sk-or-v1-...`) |
+| `NEO4J_URI` | Your Aura URI (`neo4j+s://...`) |
+| `NEO4J_PASSWORD` | Your Aura password |
+| `EMBEDDING_API_KEY` | Same OpenRouter key |
+| `OPENAI_API_KEY` | Same OpenRouter key |
+
+**Render** (free tier available — 750 hrs/month, spins down after 15 min idle):
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aaronjmars/MiroShark)
+
+Render reads `render.yaml` automatically. Set the same environment variables above when prompted.
+
+> **Note:** Cloud deploys use OpenRouter for all LLM calls. Ollama is not available in this mode. Both platforms expose MiroShark on a public HTTPS URL — no port forwarding needed.
+
+---
+
 ### Prerequisites
 
 - An OpenAI-compatible API key *(including OpenRouter, OpenAI, Anthropic, etc.)*, Ollama for local inference, **or** Claude Code CLI

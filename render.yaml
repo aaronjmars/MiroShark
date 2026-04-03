@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: miroshark
+    runtime: docker
+    plan: standard
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      # LLM — use a cloud provider (Ollama is not available on Render)
+      - key: LLM_PROVIDER
+        value: openai
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: LLM_MODEL_NAME
+        value: qwen/qwen3-235b-a22b-2507
+
+      # Smart model (optional — stronger model for reports and ontology)
+      # - key: SMART_MODEL_NAME
+      #   sync: false
+
+      # Neo4j — use Neo4j Aura free tier (aura.neo4j.io)
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USER
+        value: neo4j
+      - key: NEO4J_PASSWORD
+        sync: false
+
+      # Embeddings — use cloud provider
+      - key: EMBEDDING_PROVIDER
+        value: openai
+      - key: EMBEDDING_MODEL
+        value: openai/text-embedding-3-small
+      - key: EMBEDDING_BASE_URL
+        value: https://openrouter.ai/api
+      - key: EMBEDDING_API_KEY
+        sync: false
+      - key: EMBEDDING_DIMENSIONS
+        value: "768"
+
+      # CAMEL-AI simulation rounds — same cloud LLM
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_API_BASE_URL
+        value: https://openrouter.ai/api/v1
