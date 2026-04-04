@@ -114,7 +114,7 @@
       </div>
 
       <!-- Step 03: Generate Simulation Config -->
-      <div class="step-card" :class="{ 'active': phase === 2, 'completed': phase > 2 }">
+      <div class="step-card" :class="{ 'active': phase === 2, 'completed': phase > 2, 'error': configError }">
         <div class="card-header">
           <div class="step-info">
             <span class="step-num">03</span>
@@ -122,6 +122,7 @@
           </div>
           <div class="step-status">
             <span v-if="phase > 2" class="badge success">Completed</span>
+            <span v-else-if="configError" class="badge error">Failed</span>
             <span v-else-if="phase === 2" class="badge processing">Generating</span>
             <span v-else class="badge pending">Waiting</span>
           </div>
@@ -132,7 +133,25 @@
           <p class="description">
             LLM intelligently configures world time flow, recommendation algorithms, each individual's active time periods, posting frequency, event triggers, and other parameters based on simulation requirements and reality seeds
           </p>
-          
+
+          <!-- Config Error Panel -->
+          <div v-if="configError" class="config-error-panel">
+            <div class="config-error-title">Config Generation Failed</div>
+            <div class="config-error-msg">{{ configError }}</div>
+            <div class="config-error-hint">
+              Common causes: OpenRouter API key invalid or quota exceeded, model name not found, network timeout.
+              Check your <code>.env</code> values for <code>OPENROUTER_API_KEY</code> and <code>OPENROUTER_MODEL</code>.
+            </div>
+            <button
+              class="retry-config-btn"
+              :disabled="isConfigRetrying"
+              @click="handleConfigRetry"
+            >
+              <span v-if="isConfigRetrying" class="loading-spinner-small"></span>
+              {{ isConfigRetrying ? 'Retrying...' : 'Retry Config Generation' }}
+            </button>
+          </div>
+
           <!-- Config Preview -->
           <div v-if="simulationConfig" class="config-detail-panel">
             <!-- Time Configuration -->
@@ -670,6 +689,7 @@ import {
   getSimulationProfilesRealtime,
   getSimulationConfig,
   getSimulationConfigRealtime,
+  retrySimulationConfig,
   getRunStatus
 } from '../api/simulation'
 
@@ -694,6 +714,12 @@ const expectedTotal = ref(null)
 const simulationConfig = ref(null)
 const selectedProfile = ref(null)
 const showProfilesDetail = ref(true)
+const configError = ref(null)       // Error message when config generation fails
+const isConfigRetrying = ref(false) // True while retry is in progress
+
+// Config polling timeout: stop after 90 seconds with no result
+const CONFIG_POLL_TIMEOUT_MS = 90000
+let configPollStartTime = null
 
 // Log deduplication: track last logged key info
 let lastLoggedMessage = ''
@@ -991,6 +1017,8 @@ const fetchProfilesRealtime = async () => {
 
 // Config polling
 const startConfigPolling = () => {
+  configError.value = null
+  configPollStartTime = Date.now()
   configTimer = setInterval(fetchConfigRealtime, 2000)
 }
 
@@ -1003,13 +1031,30 @@ const stopConfigPolling = () => {
 
 const fetchConfigRealtime = async () => {
   if (!props.simulationId) return
-  
+
+  // Client-side timeout: give up after CONFIG_POLL_TIMEOUT_MS
+  if (configPollStartTime && Date.now() - configPollStartTime > CONFIG_POLL_TIMEOUT_MS) {
+    stopConfigPolling()
+    configError.value = 'Config generation timed out after 90 seconds. The LLM may be unresponsive or overloaded.'
+    addLog('✗ Config generation timed out (90s). Use "Retry Config" to try again.')
+    return
+  }
+
   try {
     const res = await getSimulationConfigRealtime(props.simulationId)
-    
+
     if (res.success && res.data) {
       const data = res.data
-      
+
+      // Backend reported a generation failure
+      if (data.config_error || data.status === 'failed') {
+        stopConfigPolling()
+        const reason = data.config_error || 'Generation failed — check your OpenRouter API key and model name'
+        configError.value = reason
+        addLog(`✗ Config generation failed: ${reason}`)
+        return
+      }
+
       // Output config generation stage log (avoid duplicates)
       if (data.generation_stage && data.generation_stage !== lastLoggedConfigStage) {
         lastLoggedConfigStage = data.generation_stage
@@ -1019,7 +1064,7 @@ const fetchConfigRealtime = async () => {
           addLog('Calling LLM to generate simulation configuration parameters...')
         }
       }
-      
+
       // If config has been generated
       if (data.config_generated && data.config) {
         simulationConfig.value = data.config
@@ -1033,19 +1078,19 @@ const fetchConfigRealtime = async () => {
           addLog(`  ├─ Hot topics: ${data.summary.hot_topics_count}`)
           addLog(`  └─ Platform config: Twitter ${data.summary.has_twitter_config ? '✓' : '✗'}, Reddit ${data.summary.has_reddit_config ? '✓' : '✗'}`)
         }
-        
+
         // Show time configuration details
         if (data.config.time_config) {
           const tc = data.config.time_config
           addLog(`Time config: ${tc.minutes_per_round} minutes per round, ${Math.floor((tc.total_simulation_hours * 60) / tc.minutes_per_round)} rounds total`)
         }
-        
+
         // Show event configuration
         if (data.config.event_config?.narrative_direction) {
           const narrative = data.config.event_config.narrative_direction
           addLog(`Narrative direction: ${narrative.length > 50 ? narrative.substring(0, 50) + '...' : narrative}`)
         }
-        
+
         stopConfigPolling()
         phase.value = 4
         addLog('✓ Environment setup complete, ready to start simulation')
@@ -1054,6 +1099,30 @@ const fetchConfigRealtime = async () => {
     }
   } catch (err) {
     console.warn('Failed to get config:', err)
+  }
+}
+
+const handleConfigRetry = async () => {
+  if (!props.simulationId || isConfigRetrying.value) return
+  isConfigRetrying.value = true
+  configError.value = null
+  lastLoggedConfigStage = ''
+  addLog('Retrying config generation...')
+
+  try {
+    const res = await retrySimulationConfig(props.simulationId)
+    if (res.success) {
+      addLog('Config retry started — waiting for LLM...')
+      startConfigPolling()
+    } else {
+      configError.value = res.error || 'Retry failed — check backend logs'
+      addLog(`✗ Retry failed: ${res.error || 'unknown error'}`)
+    }
+  } catch (err) {
+    configError.value = err.message || 'Retry request failed'
+    addLog(`✗ Retry error: ${err.message}`)
+  } finally {
+    isConfigRetrying.value = false
   }
 }
 
@@ -1232,6 +1301,77 @@ onUnmounted(() => {
 .badge.processing { background: #FF6B1A; color: #FAFAFA; }
 .badge.pending { background: var(--color-gray); color: rgba(10,10,10,0.4); }
 .badge.accent { background: rgba(255,107,26,0.1); color: #FF6B1A; }
+.badge.error { background: #FF4444; color: #FAFAFA; }
+
+.step-card.error { border-color: rgba(255,68,68,0.3); }
+
+.config-error-panel {
+  border: 2px solid #FF4444;
+  background: rgba(255,68,68,0.04);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.config-error-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  color: #FF4444;
+  margin-bottom: 8px;
+}
+
+.config-error-msg {
+  font-size: 13px;
+  color: rgba(10,10,10,0.7);
+  margin-bottom: 8px;
+  word-break: break-word;
+}
+
+.config-error-hint {
+  font-size: 12px;
+  color: rgba(10,10,10,0.5);
+  margin-bottom: 14px;
+  line-height: 1.6;
+}
+
+.config-error-hint code {
+  font-family: var(--font-mono);
+  background: rgba(10,10,10,0.06);
+  padding: 1px 4px;
+  font-size: 11px;
+}
+
+.retry-config-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  background: #FF4444;
+  color: #FAFAFA;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.retry-config-btn:hover:not(:disabled) { background: #E03C3C; }
+.retry-config-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.loading-spinner-small {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #FAFAFA;
+  animation: spin 0.8s linear infinite;
+}
+
 
 .card-content {
   /* No extra padding - uses step-card's padding */

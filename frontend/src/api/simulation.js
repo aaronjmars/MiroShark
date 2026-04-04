@@ -68,6 +68,14 @@ export const getSimulationConfigRealtime = (simulationId) => {
 }
 
 /**
+ * Retry config generation (profiles must already exist)
+ * @param {string} simulationId
+ */
+export const retrySimulationConfig = (simulationId) => {
+  return requestWithRetry(() => service.post(`/api/simulation/${simulationId}/config/retry`), 2, 1000)
+}
+
+/**
  * List all simulations
  * @param {string} projectId - Optional, filter by project ID
  */

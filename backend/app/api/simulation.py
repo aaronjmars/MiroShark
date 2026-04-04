@@ -17,6 +17,7 @@ from ..config import Config
 from ..services.entity_reader import EntityReader
 from ..services.oasis_profile_generator import OasisProfileGenerator
 from ..services.simulation_manager import SimulationManager, SimulationStatus
+from ..services.simulation_config_generator import SimulationConfigGenerator
 from ..services.simulation_runner import SimulationRunner, RunnerStatus
 from ..utils.logger import get_logger
 from ..models.project import ProjectManager
@@ -1230,27 +1231,33 @@ def get_simulation_config_realtime(simulation_id: str):
         is_generating = False
         generation_stage = None
         config_generated = False
-        
+        sim_status = ""
+        config_error = None
+
         state_file = os.path.join(sim_dir, "state.json")
         if os.path.exists(state_file):
             try:
                 with open(state_file, 'r', encoding='utf-8') as f:
                     state_data = json.load(f)
-                    status = state_data.get("status", "")
-                    is_generating = status == "preparing"
+                    sim_status = state_data.get("status", "")
+                    is_generating = sim_status == "preparing"
                     config_generated = state_data.get("config_generated", False)
-                    
+
+                    # Expose error when generation failed
+                    if sim_status == "failed":
+                        config_error = state_data.get("error") or "Config generation failed"
+
                     # Determine current stage
                     if is_generating:
                         if state_data.get("profiles_generated", False):
                             generation_stage = "generating_config"
                         else:
                             generation_stage = "generating_profiles"
-                    elif status == "ready":
+                    elif sim_status == "ready":
                         generation_stage = "completed"
             except Exception:
                 pass
-        
+
         # Build response data
         response_data = {
             "simulation_id": simulation_id,
@@ -1259,6 +1266,8 @@ def get_simulation_config_realtime(simulation_id: str):
             "is_generating": is_generating,
             "generation_stage": generation_stage,
             "config_generated": config_generated,
+            "status": sim_status,
+            "config_error": config_error,
             "config": config
         }
         
@@ -1287,6 +1296,131 @@ def get_simulation_config_realtime(simulation_id: str):
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
+
+
+@simulation_bp.route('/<simulation_id>/config/retry', methods=['POST'])
+def retry_simulation_config(simulation_id: str):
+    """
+    Retry config generation only (profiles already exist).
+
+    Resets the simulation status to 'preparing', then regenerates the
+    simulation_config.json from existing profiles and entities without
+    repeating the (slow) profile generation step.
+
+    Returns:
+        { "success": true, "data": { "simulation_id": "...", "status": "preparing" } }
+    """
+    import threading
+    from ..models.task import TaskManager, TaskStatus
+    from ..config import Config
+
+    try:
+        manager = SimulationManager()
+        state = manager.get_simulation(simulation_id)
+        if not state:
+            return jsonify({"success": False, "error": f"Simulation not found: {simulation_id}"}), 404
+
+        # Profiles must exist before we can retry config generation
+        sim_dir = os.path.join(Config.WONDERWALL_SIMULATION_DATA_DIR, simulation_id)
+        profiles_exist = (
+            os.path.exists(os.path.join(sim_dir, "reddit_profiles.json")) or
+            os.path.exists(os.path.join(sim_dir, "twitter_profiles.csv"))
+        )
+        if not profiles_exist:
+            return jsonify({
+                "success": False,
+                "error": "Agent profiles not found — run /prepare first"
+            }), 400
+
+        # Get project data needed for config generation
+        project = ProjectManager.get_project(state.project_id)
+        if not project:
+            return jsonify({"success": False, "error": f"Project not found: {state.project_id}"}), 404
+
+        simulation_requirement = project.simulation_requirement or ""
+        document_text = ProjectManager.get_extracted_text(state.project_id) or ""
+
+        storage = current_app.extensions.get('neo4j_storage')
+        if not storage:
+            return jsonify({"success": False, "error": "GraphStorage not initialized"}), 500
+
+        # Reset state so the frontend polling loop sees "preparing" again
+        state.status = SimulationStatus.PREPARING
+        state.config_generated = False
+        state.error = None
+        manager._save_simulation_state(state)
+
+        task_manager = TaskManager()
+        task_id = task_manager.create_task(
+            task_type="simulation_config_retry",
+            metadata={"simulation_id": simulation_id}
+        )
+
+        def run_config_retry():
+            try:
+                task_manager.update_task(task_id, status=TaskStatus.PROCESSING, progress=0,
+                                         message="Retrying config generation...")
+
+                # Re-read entities for config generation context
+                reader = EntityReader(storage)
+                filtered = reader.filter_defined_entities(
+                    graph_id=state.graph_id,
+                    enrich_with_edges=True
+                )
+
+                config_generator = SimulationConfigGenerator()
+                sim_params = config_generator.generate_config(
+                    simulation_id=simulation_id,
+                    project_id=state.project_id,
+                    graph_id=state.graph_id,
+                    simulation_requirement=simulation_requirement,
+                    document_text=document_text,
+                    entities=filtered.entities,
+                    enable_twitter=state.enable_twitter,
+                    enable_reddit=state.enable_reddit,
+                )
+
+                config_path = os.path.join(sim_dir, "simulation_config.json")
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    f.write(sim_params.to_json())
+
+                # Mark as complete
+                reload_state = manager.get_simulation(simulation_id)
+                if reload_state:
+                    reload_state.config_generated = True
+                    reload_state.config_reasoning = sim_params.generation_reasoning
+                    reload_state.status = SimulationStatus.READY
+                    reload_state.error = None
+                    manager._save_simulation_state(reload_state)
+
+                task_manager.complete_task(task_id, result={"simulation_id": simulation_id})
+                logger.info(f"Config retry complete for {simulation_id}")
+
+            except Exception as e:
+                logger.error(f"Config retry failed for {simulation_id}: {e}")
+                task_manager.fail_task(task_id, str(e))
+                failed_state = manager.get_simulation(simulation_id)
+                if failed_state:
+                    failed_state.status = SimulationStatus.FAILED
+                    failed_state.error = str(e)
+                    manager._save_simulation_state(failed_state)
+
+        thread = threading.Thread(target=run_config_retry, daemon=True)
+        thread.start()
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "simulation_id": simulation_id,
+                "task_id": task_id,
+                "status": "preparing",
+                "message": "Config generation retry started"
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to start config retry: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @simulation_bp.route('/<simulation_id>/config', methods=['GET'])
