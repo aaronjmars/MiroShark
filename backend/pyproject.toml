@@ -26,6 +26,9 @@ dependencies = [
     # CLI framework (agent-friendly interface)
     "typer[all]>=0.12.0",
 
+    # Human TUI (interactive REPL + live dashboard)
+    "prompt_toolkit>=3.0.0",
+
     # OASIS social media simulation (Wonderwall fork)
     # Wonderwall (oasis package) is bundled directly in backend/oasis/
     # "camel-oasis==0.2.5",  # replaced by bundled Wonderwall
@@ -76,6 +79,7 @@ dev = [
 
 [project.scripts]
 prospect-sim = "prospect_sim_cli.main:main"
+prospect-sim-tui = "prospect_sim_cli.tui:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app", "prospect_sim_cli"]
