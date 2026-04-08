@@ -141,7 +141,7 @@ class ApiClient:
             raise ApiError("timeout", f"Request to {path} timed out after {self.timeout}s")
         return self._handle_response(resp)
 
-    # ── Health ──────────────────────────────────────────────────────────
+    # ── Health & Settings ───────────────────────────────────────────────
 
     def health_check(self) -> bool:
         """Return True if backend is reachable. Never raises."""
@@ -150,6 +150,39 @@ class ApiClient:
             return True
         except ApiError:
             return False
+
+    def get_settings(self) -> dict:
+        """Return current backend settings (llm + neo4j). Raises ApiError if offline."""
+        return self._get("/api/settings")
+
+    def update_settings(
+        self,
+        llm: Optional[dict] = None,
+        neo4j: Optional[dict] = None,
+    ) -> dict:
+        """
+        Update backend LLM / Neo4j config at runtime (no restart required).
+
+        llm keys: provider, base_url, model_name, api_key
+        neo4j keys: uri, user, password
+        """
+        body: dict = {}
+        if llm:
+            body["llm"] = llm
+        if neo4j:
+            body["neo4j"] = neo4j
+        return self._post("/api/settings", json=body)
+
+    def test_llm(self) -> dict:
+        """
+        Fire a minimal test call to the current LLM config.
+        Returns {success, model, latency_ms} or {success: False, error}.
+        Never raises — callers should check the 'success' field.
+        """
+        try:
+            return self._post("/api/settings/test-llm")
+        except ApiError as exc:
+            return {"success": False, "error": exc.message}
 
     # ── Project / Graph ─────────────────────────────────────────────────
 

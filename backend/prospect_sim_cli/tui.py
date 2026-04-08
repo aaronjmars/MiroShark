@@ -37,43 +37,11 @@ from rich.text import Text
 
 from .cache import CACHE_DIR, CliConfig, IcpCache
 from .client import ApiClient, ApiError
-
-# ── Brand colours ────────────────────────────────────────────────────────────
-ORANGE = "#FF6B35"
-ORANGE_DIM = "#CC4A10"
-DIM = "dim"
-
-# ── Braille spinner frames (same as Hermes) ───────────────────────────────────
-SPINNER = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-
-# ── Dropout colour map ────────────────────────────────────────────────────────
-DROPOUT_COLORS = {
-    "subject_line": "red",
-    "opening": "yellow",
-    "body": "yellow",
-    "cta": "cyan",
-    "none": "green",
-    "n/a": "dim",
-}
-
-# ── ASCII logo (compact, fits 80 cols) ───────────────────────────────────────
-LOGO = f"""[bold {ORANGE}]
- ██████╗ ██████╗  ██████╗ ███████╗██████╗ ███████╗ ██████╗████████╗
- ██╔══██╗██╔══██╗██╔═══██╗██╔════╝██╔══██╗██╔════╝██╔════╝╚══██╔══╝
- ██████╔╝██████╔╝██║   ██║███████╗██████╔╝█████╗  ██║        ██║
- ██╔═══╝ ██╔══██╗██║   ██║╚════██║██╔═══╝ ██╔══╝  ██║        ██║
- ██║     ██║  ██║╚██████╔╝███████║██║     ███████╗╚██████╗   ██║
- ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝     ╚══════╝ ╚═════╝   ╚═╝
-[/][dim]  ·  B2B Cold Email Variant Simulator  ·  Type /help to start[/dim]"""
-
-LOGO_COMPACT = f"[bold {ORANGE}]📧 PROSPECT SIM[/]  [dim]B2B Cold Email Variant Simulator[/dim]"
-
-# ── Slash commands for autocomplete ──────────────────────────────────────────
-SLASH_COMMANDS = [
-    "/icp", "/add", "/variants", "/rm", "/run",
-    "/why", "/rounds", "/parallel", "/history",
-    "/clear", "/new", "/help", "/quit",
-]
+from .tui_constants import (
+    ORANGE, DIM, SPINNER, DROPOUT_COLORS,
+    SLASH_COMMANDS, CONFIG_KEYS, LOGO, LOGO_COMPACT,
+)
+from .tui_config import TuiConfigMixin
 
 
 class SlashCompleter(Completer):
@@ -90,6 +58,13 @@ class SlashCompleter(Completer):
             for c in self._path_completer.get_completions(path_doc, complete_event):
                 yield c
             return
+        # /config set <key> completion
+        if text.startswith("/config set "):
+            partial = text[len("/config set "):]
+            for key in CONFIG_KEYS:
+                if key.startswith(partial):
+                    yield Completion(key, start_position=-len(partial))
+            return
         # Slash command completion
         if text.startswith("/") and " " not in text:
             word = text.lstrip("/")
@@ -98,7 +73,7 @@ class SlashCompleter(Completer):
                     yield Completion(cmd, start_position=-len(text))
 
 
-class ProspectSimTUI:
+class ProspectSimTUI(TuiConfigMixin):
     """
     Interactive REPL session for prospect-sim.
 
@@ -182,9 +157,15 @@ class ProspectSimTUI:
     # ── REPL loop ─────────────────────────────────────────────────────────────
 
     def run(self) -> None:
-        """Main entry point. Print header, then start REPL."""
-        self._print_header()
-        self._print_hint("No ICP loaded. Run /icp <file> to start, or /help for commands.\n")
+        """Main entry point. Auto-onboard on first launch, then start REPL."""
+        from .cache import CONFIG_FILE
+        first_run = not CONFIG_FILE.exists()
+
+        if first_run:
+            self._run_onboarding()
+        else:
+            self._print_header()
+            self._print_hint("No ICP loaded. Run /icp <file> to start, or /help for commands.\n")
 
         with patch_stdout():
             while True:
@@ -220,6 +201,8 @@ class ProspectSimTUI:
             "/rounds": self._cmd_rounds,
             "/parallel": lambda _: self._cmd_parallel(),
             "/history": lambda _: self._cmd_history(),
+            "/config": self._cmd_config,
+            "/setup": lambda _: self._cmd_setup(),
             "/clear": lambda _: self._cmd_clear(),
             "/new": lambda _: self._cmd_new(),
             "/help": lambda _: self._cmd_help(),
@@ -713,19 +696,27 @@ class ProspectSimTUI:
         table.add_column("Description")
 
         rows = [
-            ("/icp <file>",     "Load an ICP file (tab-autocomplete). Builds graph if not cached."),
-            ("/add",            "Interactive wizard: add an email variant to the session."),
-            ("/variants",       "Show all current variants in a table."),
-            ("/rm <n>",         "Remove variant by number."),
-            ("/run",            "Simulate all variants against the loaded ICP. Shows live dashboard."),
-            ("/why <n|label>",  "Explain why a variant ranked where it did (uses report content)."),
-            ("/rounds <n>",     "Set rounds per variant (default: 8)."),
-            ("/parallel",       "Toggle parallel / sequential simulation mode."),
-            ("/history",        "Show all cached ICP projects."),
-            ("/clear",          "Clear all current variants."),
-            ("/new",            "Reset session (clear ICP + variants + results)."),
-            ("/help",           "Show this help table."),
-            ("/quit",           "Exit the session."),
+            ("── Simulation ──────────────", ""),
+            ("/icp <file>",          "Load an ICP file (tab-autocomplete). Builds graph if not cached."),
+            ("/add",                 "Interactive wizard: add an email variant to the session."),
+            ("/variants",            "Show all current variants in a table."),
+            ("/rm <n>",              "Remove variant by number."),
+            ("/run",                 "Simulate all variants. Shows live dashboard + inline results."),
+            ("/why <n|label>",       "Explain why a variant ranked where it did."),
+            ("── Session ─────────────────", ""),
+            ("/rounds <n>",          "Set rounds per variant (default: 8)."),
+            ("/parallel",            "Toggle parallel / sequential simulation mode."),
+            ("/history",             "Show all cached ICP projects."),
+            ("/clear",               "Clear all current variants."),
+            ("/new",                 "Reset session (clear ICP + variants + results)."),
+            ("── Configuration ───────────", ""),
+            ("/config",              "Show all settings (CLI + backend model/URL)."),
+            ("/config set <k> <v>",  "Change a setting. Keys: api-url, rounds, parallel, model, base-url, api-key"),
+            ("/config test",         "Test the LLM connection and report latency."),
+            ("/setup",               "Re-run the setup wizard."),
+            ("── Other ───────────────────", ""),
+            ("/help",                "Show this help table."),
+            ("/quit",                "Exit the session."),
         ]
         for cmd, desc in rows:
             table.add_row(cmd, desc)
