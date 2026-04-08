@@ -357,3 +357,12 @@ class ApiClient:
     def get_report(self, report_id: str) -> dict:
         """Fetch a completed report."""
         return self._get(f"/api/report/{report_id}")
+
+    # ── Graph ────────────────────────────────────────────────────────────
+
+    def get_graph_data(self, graph_id: str) -> dict:
+        """
+        Fetch graph structure data for display.
+        Returns {node_count, edge_count, entity_types, nodes[], edges[]}.
+        """
+        return self._get(f"/api/graph/data/{graph_id}")

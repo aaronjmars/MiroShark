@@ -42,6 +42,7 @@ from .tui_constants import (
     SLASH_COMMANDS, CONFIG_KEYS, LOGO, LOGO_COMPACT,
 )
 from .tui_config import TuiConfigMixin
+from .tui_graph import TuiGraphMixin
 
 
 class SlashCompleter(Completer):
@@ -73,7 +74,7 @@ class SlashCompleter(Completer):
                     yield Completion(cmd, start_position=-len(text))
 
 
-class ProspectSimTUI(TuiConfigMixin):
+class ProspectSimTUI(TuiConfigMixin, TuiGraphMixin):
     """
     Interactive REPL session for prospect-sim.
 
@@ -198,6 +199,7 @@ class ProspectSimTUI(TuiConfigMixin):
             "/rm": self._cmd_rm,
             "/run": lambda _: self._cmd_run(),
             "/why": self._cmd_why,
+            "/graph": self._cmd_graph,
             "/rounds": self._cmd_rounds,
             "/parallel": lambda _: self._cmd_parallel(),
             "/history": lambda _: self._cmd_history(),
@@ -703,6 +705,8 @@ class ProspectSimTUI(TuiConfigMixin):
             ("/rm <n>",              "Remove variant by number."),
             ("/run",                 "Simulate all variants. Shows live dashboard + inline results."),
             ("/why <n|label>",       "Explain why a variant ranked where it did."),
+            ("/graph",               "Show ICP knowledge graph structure (entity types, counts)."),
+            ("/graph open",          "Same, and open the D3 visualization in your browser."),
             ("── Session ─────────────────", ""),
             ("/rounds <n>",          "Set rounds per variant (default: 8)."),
             ("/parallel",            "Toggle parallel / sequential simulation mode."),

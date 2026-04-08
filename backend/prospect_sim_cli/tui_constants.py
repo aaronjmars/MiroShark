@@ -24,7 +24,7 @@ DROPOUT_COLORS = {
 # Slash commands for autocomplete
 SLASH_COMMANDS = [
     "/icp", "/add", "/variants", "/rm", "/run",
-    "/why", "/rounds", "/parallel", "/history",
+    "/why", "/graph", "/rounds", "/parallel", "/history",
     "/config", "/setup", "/clear", "/new", "/help", "/quit",
 ]
 
