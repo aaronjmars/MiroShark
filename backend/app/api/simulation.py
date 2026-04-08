@@ -3318,26 +3318,21 @@ def run_variant_test():
                 f"--- END VARIANT ---"
             )
 
-            # Create simulation via SimulationManager using existing project graph
-            sim_id = SimulationManager.create_simulation(
+            # Create simulation via SimulationManager (instance method, not classmethod)
+            # Disable social platforms — email inbox uses its own Wonderwall module
+            manager = SimulationManager()
+            state = manager.create_simulation(
+                project_id=project_id,
                 graph_id=project.graph_id,
-                simulation_requirement=variant_requirement,
-                platform="email_inbox",
-                max_rounds=num_rounds,
-                metadata={
-                    "project_id": project_id,
-                    "variant_id": vid,
-                    "variant_label": label,
-                    "hook_type": variant.get("hook_type", "unknown"),
-                    "simulation_type": "email_inbox",
-                    "variants": [variant],  # single variant per simulation run
-                },
+                enable_twitter=False,
+                enable_reddit=False,
+                enable_polymarket=False,
             )
 
             return {
                 "variant_id": vid,
                 "variant_label": label,
-                "simulation_id": sim_id,
+                "simulation_id": state.simulation_id,
                 "status": "created",
             }
 
