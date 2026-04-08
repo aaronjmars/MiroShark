@@ -49,6 +49,11 @@ class Project:
     chunk_size: int = 1000
     chunk_overlap: int = 50
 
+    # Email copy variants for inbox simulation (prospect-sim)
+    # Each item: {id, label, subject_line, body, hook_type}
+    variants: List[Dict[str, Any]] = field(default_factory=list)
+    simulation_type: str = "social"  # "social" | "email_inbox"
+
     # Error information
     error: Optional[str] = None
 
@@ -69,7 +74,9 @@ class Project:
             "simulation_requirement": self.simulation_requirement,
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
-            "error": self.error
+            "error": self.error,
+            "variants": self.variants,
+            "simulation_type": self.simulation_type,
         }
 
     @classmethod
@@ -94,7 +101,9 @@ class Project:
             simulation_requirement=data.get('simulation_requirement'),
             chunk_size=data.get('chunk_size', 500),
             chunk_overlap=data.get('chunk_overlap', 50),
-            error=data.get('error')
+            error=data.get('error'),
+            variants=data.get('variants', []),
+            simulation_type=data.get('simulation_type', 'social'),
         )
 
 

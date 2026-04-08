@@ -48,6 +48,12 @@ const routes = [
     name: 'Compare',
     component: () => import('../views/ComparisonView.vue'),
     props: true
+  },
+  {
+    // B2B email copy variant testing — run multiple email variants against synthetic ICP personas
+    path: '/variant-test',
+    name: 'VariantTest',
+    component: () => import('../views/VariantTestView.vue')
   }
 ]
 
