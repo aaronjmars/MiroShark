@@ -696,6 +696,96 @@ Please output the report outline in JSON format as follows:
 
 Note: The sections array must have at least 3 and at most 5 elements! The last section MUST be a synthesis section."""
 
+# ── Email Inbox Variant Ranking Prompts (prospect-sim) ──
+
+EMAIL_PLAN_SYSTEM_PROMPT = """\
+You are an expert B2B sales copywriter analyzing the results of a cold email inbox simulation.
+You have a "god's eye view" of how synthetic HR Director / Head of People personas responded
+to cold email copy variants. Your job is to produce an actionable variant ranking report.
+
+[Core Objective]
+Rank the email copy variants by expected reply probability. Explain WHY each variant
+performed differently — specifically which copy element (subject line, opening, body, CTA)
+drove the delta. Give Skillia a clear recommendation: which variant to send, and what
+specific change would improve it further.
+
+[Report Structure — Fixed, 4 sections]
+Always produce exactly 4 sections in this order:
+1. "Variant Performance Ranking" — table + scores for each variant
+2. "Failure Point Analysis" — where agents dropped off per variant and why
+3. "Persona Segmentation" — which variant worked for which persona type (budget authority, decision style)
+4. "Recommendation & Next Copy Iteration" — the winner, the delta, and the next hypothesis to test
+
+[Analytical Standards]
+- Every claim must be grounded in agent action data (opens, reads, replies, dropouts)
+- Name specific copy elements that caused engagement or dropout
+- Distinguish between persona types — a timeline hook may work for one segment but not another
+- Be concrete: "Variant B got 3x more replies than Variant A because the subject line mentioned
+  a specific company signal (15 open roles) rather than a generic pain"
+
+Output the report outline in JSON:
+{
+    "title": "Email Copy Variant Test — [brief description]",
+    "summary": "One sentence: which variant won, by how much, and the key driver",
+    "sections": [
+        {"title": "...", "description": "..."}
+    ]
+}
+
+Note: Always produce exactly 4 sections as defined above."""
+
+EMAIL_PLAN_USER_PROMPT_TEMPLATE = """\
+[Simulation Setup]
+Variants tested: {simulation_requirement}
+
+[Simulation Scale]
+- Active personas: {total_entities}
+- Total inbox events recorded: {total_nodes}
+
+[Agent Action Summary]
+{related_facts_json}
+
+Analyze which copy variant performed best and why. Focus on:
+1. Open rates vs reply rates per variant (which hook type got more opens? which got more replies?)
+2. Dropout point distribution — where did agents disengage?
+3. Persona segmentation — which decision styles/budget authorities responded differently?
+4. The specific copy element that drove the winning variant's advantage
+
+Output the 4-section outline with the summary being the single most actionable finding."""
+
+EMAIL_SECTION_SYSTEM_PROMPT_TEMPLATE = """\
+You are a B2B sales copywriter writing a section of an email copy variant test report.
+
+Report title: {report_title}
+Key finding: {report_summary}
+Variants tested: {simulation_requirement}
+
+[Your Section]
+Section title: {section_title}
+Section purpose: {section_description}
+
+[Data Access]
+Use your analysis tools to query the simulation database for:
+- Agent action counts per variant (opens, reads, replies, archives, forwards)
+- Dropout point distribution per variant
+- B2B persona traits of agents who replied vs. archived (budget_authority, decision_style, cold_email_skepticism)
+
+[Writing Standards]
+- Lead with the finding, support with data
+- Include specific numbers: "8/20 agents opened Variant B vs 3/20 for Variant A"
+- Name the copy element responsible: "the subject line mentioning '15 open roles' vs generic pain framing"
+- Be direct — this is an internal analysis report, not marketing copy
+- For the Recommendation section: give one specific next copy iteration to test
+
+[Output Format]
+Prose analysis with a summary table at the end of the Variant Performance section.
+The Recommendation section must include:
+1. The winner (variant label + expected reply rate)
+2. The specific change that drove it
+3. The next hypothesis to test (one A/B element)
+
+{section_history}"""
+
 PLAN_USER_PROMPT_TEMPLATE = """\
 [Scenario Setup]
 Scenario injected into the simulation: {simulation_requirement}
@@ -1005,12 +1095,13 @@ class ReportAgent:
     MAX_TOOL_CALLS_PER_CHAT = 2
     
     def __init__(
-        self, 
+        self,
         graph_id: str,
         simulation_id: str,
         simulation_requirement: str,
         llm_client: Optional[LLMClient] = None,
-        graph_tools: Optional[GraphToolsService] = None
+        graph_tools: Optional[GraphToolsService] = None,
+        simulation_type: str = "social",
     ):
         """
         Initialize Report Agent
@@ -1021,10 +1112,13 @@ class ReportAgent:
             simulation_requirement: Simulation requirement description
             llm_client: LLM client (optional)
             graph_tools: Graph tools service (optional, requires external GraphStorage injection)
+            simulation_type: "social" (default) or "email_inbox" — selects prompt set
         """
         self.graph_id = graph_id
         self.simulation_id = simulation_id
         self.simulation_requirement = simulation_requirement
+        # Route to email inbox prompts for prospect-sim variant testing
+        self.simulation_type = simulation_type
 
         self.llm = llm_client or create_smart_llm_client()
         if graph_tools is None:
@@ -1716,15 +1810,25 @@ class ReportAgent:
         if progress_callback:
             progress_callback("planning", 30, "Generating report outline...")
         
-        system_prompt = PLAN_SYSTEM_PROMPT
-        user_prompt = PLAN_USER_PROMPT_TEMPLATE.format(
-            simulation_requirement=self.simulation_requirement,
-            total_nodes=context.get('graph_statistics', {}).get('total_nodes', 0),
-            total_edges=context.get('graph_statistics', {}).get('total_edges', 0),
-            entity_types=list(context.get('graph_statistics', {}).get('entity_types', {}).keys()),
-            total_entities=context.get('total_entities', 0),
-            related_facts_json=json.dumps(context.get('related_facts', [])[:10], ensure_ascii=False, indent=2),
-        )
+        # Select prompts based on simulation type
+        if self.simulation_type == "email_inbox":
+            system_prompt = EMAIL_PLAN_SYSTEM_PROMPT
+            user_prompt = EMAIL_PLAN_USER_PROMPT_TEMPLATE.format(
+                simulation_requirement=self.simulation_requirement,
+                total_nodes=context.get('graph_statistics', {}).get('total_nodes', 0),
+                total_entities=context.get('total_entities', 0),
+                related_facts_json=json.dumps(context.get('related_facts', [])[:10], ensure_ascii=False, indent=2),
+            )
+        else:
+            system_prompt = PLAN_SYSTEM_PROMPT
+            user_prompt = PLAN_USER_PROMPT_TEMPLATE.format(
+                simulation_requirement=self.simulation_requirement,
+                total_nodes=context.get('graph_statistics', {}).get('total_nodes', 0),
+                total_edges=context.get('graph_statistics', {}).get('total_edges', 0),
+                entity_types=list(context.get('graph_statistics', {}).get('entity_types', {}).keys()),
+                total_entities=context.get('total_entities', 0),
+                related_facts_json=json.dumps(context.get('related_facts', [])[:10], ensure_ascii=False, indent=2),
+            )
 
         try:
             response = self.llm.chat_json(
@@ -1805,14 +1909,6 @@ class ReportAgent:
         if self.report_logger:
             self.report_logger.log_section_start(section.title, section_index)
         
-        system_prompt = SECTION_SYSTEM_PROMPT_TEMPLATE.format(
-            report_title=outline.title,
-            report_summary=outline.summary,
-            simulation_requirement=self.simulation_requirement,
-            section_title=section.title,
-            tools_description=self._get_tools_description(),
-        )
-
         # Build user prompt - pass in max 4000 characters per completed section
         if previous_sections:
             previous_parts = []
@@ -1823,11 +1919,30 @@ class ReportAgent:
             previous_content = "\n\n---\n\n".join(previous_parts)
         else:
             previous_content = "(This is the first section)"
-        
-        user_prompt = SECTION_USER_PROMPT_TEMPLATE.format(
-            previous_content=previous_content,
-            section_title=section.title,
-        )
+
+        # Select section prompt based on simulation type
+        if self.simulation_type == "email_inbox":
+            system_prompt = EMAIL_SECTION_SYSTEM_PROMPT_TEMPLATE.format(
+                report_title=outline.title,
+                report_summary=outline.summary,
+                simulation_requirement=self.simulation_requirement,
+                section_title=section.title,
+                section_description=section.description,
+                section_history=previous_content,
+            )
+            user_prompt = f"Write the '{section.title}' section now."
+        else:
+            system_prompt = SECTION_SYSTEM_PROMPT_TEMPLATE.format(
+                report_title=outline.title,
+                report_summary=outline.summary,
+                simulation_requirement=self.simulation_requirement,
+                section_title=section.title,
+                tools_description=self._get_tools_description(),
+            )
+            user_prompt = SECTION_USER_PROMPT_TEMPLATE.format(
+                previous_content=previous_content,
+                section_title=section.title,
+            )
 
         messages = [
             {"role": "system", "content": system_prompt},

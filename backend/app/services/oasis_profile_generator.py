@@ -46,6 +46,14 @@ class OasisAgentProfile:
     # Polymarket-specific fields
     risk_tolerance: str = "moderate"  # "high", "moderate", or "low"
 
+    # B2B email inbox simulation fields
+    # These are populated when simulation_type == "email_inbox"
+    budget_authority: bool = False           # Can they approve L&D spend directly?
+    cold_email_skepticism: float = 0.6       # 0.0 = open, 1.0 = extremely skeptical
+    inbox_habit: str = "batch_processor"     # morning_scanner | batch_processor | responsive
+    pain_signal_sensitivity: Dict[str, float] = field(default_factory=dict)  # pain_type → 0-1
+    decision_style: str = "roi_driven"       # roi_driven | risk_averse | early_adopter | social_proof
+
     # Additional persona information
     age: Optional[int] = None
     gender: Optional[str] = None
@@ -118,6 +126,29 @@ class OasisAgentProfile:
         
         return profile
     
+    def to_inbox_format(self) -> Dict[str, Any]:
+        """Convert to email inbox simulation format.
+
+        Returns a dict compatible with Wonderwall's UserInfo(profile={"other_info": ...})
+        structure, which EmailInboxPromptBuilder reads to build B2B decision-maker personas.
+        """
+        user_profile = self.persona or f"{self.name} is an HR professional at a Spanish SME."
+        if self.profession:
+            user_profile = f"{self.profession}. {user_profile}"
+
+        return {
+            "user_id": self.user_id,
+            "name": self.user_name,
+            "description": self.bio or f"HR professional: {self.name}",
+            # B2B inbox-specific fields read by EmailInboxPromptBuilder
+            "user_profile": user_profile,
+            "budget_authority": self.budget_authority,
+            "cold_email_skepticism": self.cold_email_skepticism,
+            "inbox_habit": self.inbox_habit,
+            "pain_signal_sensitivity": self.pain_signal_sensitivity,
+            "decision_style": self.decision_style,
+        }
+
     def to_polymarket_format(self) -> Dict[str, Any]:
         """Convert to Polymarket prediction market format.
 
@@ -158,6 +189,12 @@ class OasisAgentProfile:
             "source_entity_uuid": self.source_entity_uuid,
             "source_entity_type": self.source_entity_type,
             "created_at": self.created_at,
+            # B2B email inbox fields
+            "budget_authority": self.budget_authority,
+            "cold_email_skepticism": self.cold_email_skepticism,
+            "inbox_habit": self.inbox_habit,
+            "pain_signal_sensitivity": self.pain_signal_sensitivity,
+            "decision_style": self.decision_style,
         }
 
 
@@ -258,6 +295,18 @@ class OasisProfileGenerator:
         "fund", "exchange", "consortium", "coalition",
     ]
     
+    # B2B entity types for email inbox simulation
+    B2B_PERSONA_TYPES = [
+        "hrdirector", "headofpeople", "hrmanager", "peopleops",
+        "cpo", "ceo", "founder", "directorofhr", "vpofpeople",
+        "talentacquisition", "learninganddevelopment", "ldmanager",
+    ]
+
+    # B2B company types (generate representative personas, not individuals)
+    B2B_COMPANY_TYPES = [
+        "sme", "startup", "scaleup", "techcompany", "b2bcompany",
+    ]
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -266,6 +315,7 @@ class OasisProfileGenerator:
         storage: Optional[GraphStorage] = None,
         graph_id: Optional[str] = None,
         simulation_requirement: Optional[str] = None,
+        simulation_type: str = "social",
     ):
         self.model_name = model_name or Config.LLM_MODEL_NAME
         self.llm = create_llm_client(
@@ -281,6 +331,9 @@ class OasisProfileGenerator:
         # Web enrichment for notable figures / thin context
         self.web_enricher = WebEnricher()
         self.simulation_requirement = simulation_requirement or ""
+
+        # "social" (default) or "email_inbox" — controls persona generation strategy
+        self.simulation_type = simulation_type
     
     def generate_profile_from_entity(
         self, 
@@ -358,6 +411,12 @@ class OasisProfileGenerator:
             interested_topics=profile_data.get("interested_topics", []),
             source_entity_uuid=entity.uuid,
             source_entity_type=entity_type,
+            # B2B email inbox fields — populated when simulation_type == "email_inbox"
+            budget_authority=bool(profile_data.get("budget_authority", False)),
+            cold_email_skepticism=float(profile_data.get("cold_email_skepticism", 0.6)),
+            inbox_habit=profile_data.get("inbox_habit", "batch_processor"),
+            pain_signal_sensitivity=profile_data.get("pain_signal_sensitivity", {}),
+            decision_style=profile_data.get("decision_style", "roi_driven"),
         )
     
     def _generate_username(self, name: str) -> str:
@@ -619,8 +678,13 @@ class OasisProfileGenerator:
         """
         
         is_individual = self._is_individual_entity(entity_type)
-        
-        if is_individual:
+
+        # B2B email inbox mode: always generate B2B decision-maker personas
+        if self.simulation_type == "email_inbox":
+            prompt = self._build_b2b_persona_prompt(
+                entity_name, entity_type, entity_summary, entity_attributes, context
+            )
+        elif is_individual:
             prompt = self._build_individual_persona_prompt(
                 entity_name, entity_type, entity_summary, entity_attributes, context
             )
@@ -879,6 +943,73 @@ Examples: "ISTJ" (conservative, by-the-book), "ENTJ" (assertive, agenda-setting)
 IMPORTANT: Do NOT include karma, friend_count, follower_count, or statuses_count — those are computed separately.
 """
     
+    def _build_b2b_persona_prompt(
+        self,
+        entity_name: str,
+        entity_type: str,
+        entity_summary: str,
+        entity_attributes: Dict[str, Any],
+        context: str
+    ) -> str:
+        """Build B2B decision-maker persona prompt for email inbox simulation.
+
+        Generates an HR Director / Head of People persona at a Spanish SME
+        with B2B-specific traits that determine cold email response behavior.
+        """
+        attrs_str = json.dumps(entity_attributes, ensure_ascii=False) if entity_attributes else "None"
+        context_str = context[:3000] if context else "No additional context"
+
+        return f"""Create a B2B decision-maker persona for an email inbox simulation.
+This persona represents an HR Director or Head of People at a Spanish SME (80-150 employees).
+
+SOURCE ENTITY: {entity_name} ({entity_type})
+ENTITY SUMMARY: {entity_summary}
+ATTRIBUTES: {attrs_str}
+
+CONTEXT (from ICP profile and knowledge graph):
+{context_str}
+
+SIMULATION GOAL: {self.simulation_requirement[:500] if self.simulation_requirement else "B2B cold email copy variant testing"}
+
+Return JSON with these fields:
+
+"bio": Short professional bio (2 sentences). Real LinkedIn bio style — specific title, company type, years experience.
+
+"persona": Character description for the simulation (400-600 words). Include:
+- Current role and company context (what kind of company, how many employees, growth stage)
+- L&D/training situation: Do they have a dedicated L&D team? How is training currently handled?
+- Top 3 work pressures RIGHT NOW (hiring, retention, skills gap, compliance, etc.)
+- Relationship with technology: Are they a digital adopter or cautious about new tools?
+- Typical day: When do they check email? How much time do they have for vendors?
+- Cold email behavior: How do they handle cold outreach? What makes them stop and read?
+
+"age": Age (35-55 realistic range for this role)
+"gender": "male" or "female"
+"mbti": MBTI type (VARY this — common types in HR: ENFJ, ISFJ, ESTJ, ENFP, ENTJ)
+"country": "Spain"
+"profession": Exact job title (e.g. "HR Director", "Head of People", "People & Culture Manager")
+"interested_topics": ["talent development", "employee retention", ...] (4-6 specific topics)
+
+"budget_authority": true if they can approve L&D spend directly, false if they need CFO/CEO sign-off
+"cold_email_skepticism": float 0.0-1.0 (0.7-0.9 realistic for busy HR Directors)
+"inbox_habit": one of "morning_scanner", "batch_processor", "responsive"
+"pain_signal_sensitivity": object mapping pain types to sensitivity (0.0-1.0):
+  {{
+    "skills_gap": 0.8,
+    "employee_retention": 0.7,
+    "onboarding_inefficiency": 0.6,
+    "no_l&d_team": 0.9,
+    "hiring_cost": 0.5,
+    "manager_development": 0.6
+  }}
+"decision_style": one of "roi_driven", "risk_averse", "early_adopter", "social_proof"
+
+IMPORTANT: Vary the personas meaningfully. Not all HR Directors are the same.
+Some are overwhelmed solo HR in a fast-growing startup. Others are seasoned professionals
+at established companies with clear L&D gaps. Make each one a real person.
+Do NOT include karma, friend_count, follower_count, or statuses_count.
+"""
+
     def _generate_profile_rule_based(
         self,
         entity_name: str,
