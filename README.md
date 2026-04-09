@@ -33,6 +33,215 @@ Two interfaces — pick one:
 
 ---
 
+## How It Works
+
+### The Complete Pipeline
+
+```mermaid
+flowchart LR
+    A([📄 ICP file\nicp.md]) --> B
+    C([📋 Variants\nvariants.json]) --> E
+
+    subgraph PHASE1 ["① GRAPH BUILD  (~5-10 min, cached after first run)"]
+        B[Upload ICP] --> D[LLM: Generate\nOntology]
+        D --> E2[LLM: Extract entities\n& relationships per chunk]
+        E2 --> F[(Neo4j\nKnowledge Graph)]
+        F --> G[💾 Cache\nproject_id]
+    end
+
+    subgraph PHASE2 ["② SIMULATION  (~2-8 min)"]
+        E[Load Variants] --> H[Spawn AI Personas\nfrom graph nodes]
+        H --> I[Round 1…N\nPersona reads email\nOpen / Read / Reply / Dropout]
+        I --> J[Record dropout\npoint per variant]
+    end
+
+    subgraph PHASE3 ["③ RANKING  (~1-2 min)"]
+        J --> K[ReACT Report Agent\nanalyzes all rounds]
+        K --> L([🏆 Ranked results\nwinner + dropout map])
+    end
+
+    PHASE1 --> PHASE2
+    PHASE2 --> PHASE3
+    G -.->|next run: skip build| PHASE2
+```
+
+---
+
+### Phase 1 — ICP to Knowledge Graph
+
+Your ICP document is transformed into a graph of interconnected personas. The LLM first designs the ontology (what *kinds* of entities matter for your simulation), then extracts every entity and relationship from the text.
+
+```mermaid
+flowchart TD
+    A([📄 icp.md / .txt / .pdf]) --> B[Text extraction\n& chunking]
+
+    B --> C["LLM: Ontology generation\n(Smart model)\n──────────────────\nDefines entity types:\n• HR Director\n• Company\n• Pain Point\n• Competitor\n• …\n\nDefines relationships:\n• WORKS_AT\n• HAS_PAIN\n• COMPETES_WITH\n• …"]
+
+    C --> D["LLM: NER extraction\n(fast model, per chunk)\n──────────────────\nExtracts entities +\nrelationships from\neach text chunk"]
+
+    D --> E[(Neo4j\nKnowledge Graph\n──────────────\nnodes: personas\nedges: relationships\nvectors: embeddings)]
+
+    E --> F["LLM: Persona generation\n──────────────────\nEach entity → full\nAI persona with:\n• communication style\n• pain points\n• opinion stance\n• behavior patterns"]
+
+    F --> G([project_id\ncached locally])
+
+    style C fill:#2d2d2d,color:#FF6B35
+    style D fill:#2d2d2d,color:#FF6B35
+    style F fill:#2d2d2d,color:#FF6B35
+    style E fill:#1a3a5c,color:#fff
+```
+
+---
+
+### Phase 2 — Email Simulation Funnel
+
+Each variant is tested through a 4-stage funnel across N simulation rounds. Every persona agent independently decides whether to proceed at each stage — or drop out.
+
+```
+                    ┌─────────────────────────────────────────┐
+                    │           VARIANT: "Problem-led"         │
+                    └────────────────────┬────────────────────┘
+                                         │
+                    ┌────────────────────▼────────────────────┐
+                    │  STAGE 1 — SUBJECT LINE                  │
+                    │  "Your onboarding is costing you hires"  │
+                    │                                          │
+                    │  100 personas see it                     │
+                    │  78 open  ──────────────────────────►   │
+                    │  22 delete without opening    ◄── ✗     │
+                    └────────────────────┬────────────────────┘
+                                         │ 78 opened
+                    ┌────────────────────▼────────────────────┐
+                    │  STAGE 2 — OPENING LINE                  │
+                    │  "Most HR Directors we talk to lose..."  │
+                    │                                          │
+                    │  68 keep reading  ──────────────────►   │
+                    │  10 lose interest here        ◄── ✗     │
+                    └────────────────────┬────────────────────┘
+                                         │ 68 reading
+                    ┌────────────────────▼────────────────────┐
+                    │  STAGE 3 — BODY                          │
+                    │  "Skillia cuts onboarding from..."       │
+                    │                                          │
+                    │  57 reach CTA  ─────────────────────►   │
+                    │  11 drop (too salesy / vague)  ◄── ✗    │
+                    └────────────────────┬────────────────────┘
+                                         │ 57 reach CTA
+                    ┌────────────────────▼────────────────────┐
+                    │  STAGE 4 — CTA                           │
+                    │  "Worth a 15-min call this week?"        │
+                    │                                          │
+                    │  34 reply / book  ──────────────────►   │  ← reply_score
+                    │  23 no action                 ◄── ✗     │
+                    └─────────────────────────────────────────┘
+
+Dropout point for this variant: "none" (most lost at subject or CTA, not a single bottleneck)
+```
+
+The **dropout point** tells you *where* to fix the copy — not just which variant won.
+
+| Dropout value | Meaning |
+|---|---|
+| `subject_line` | Most personas never opened — rewrite the subject |
+| `opening` | Opened but lost interest in line 1-2 — rewrite the hook |
+| `body` | Got past the opening but disengaged mid-copy |
+| `cta` | Read everything but didn't act — rewrite the ask |
+| `none` | No single bottleneck — the copy performs consistently |
+
+---
+
+### Phase 3 — ReACT Ranking Report
+
+After all simulations complete, a ReACT agent searches the graph and simulation data to produce a ranked analysis. It doesn't just count opens — it reasons about *why* personas responded the way they did.
+
+```mermaid
+flowchart LR
+    A[Simulation results\nfrom all variants] --> B
+
+    subgraph REACT ["ReACT Agent loop"]
+        B[Plan: what sections\nshould this report cover?] --> C
+        C[Tool: search graph\nfor persona context] --> D
+        D[Tool: analyze\nbelief trajectories] --> E
+        E[Tool: query\nsimulation feed] --> F
+        F{Enough evidence?}
+        F -- no --> C
+        F -- yes --> G[Write section]
+        G --> H{More sections?}
+        H -- yes --> C
+        H -- no --> I
+    end
+
+    I[Ranked results\n+ dropout map\n+ winner analysis] --> J([Output to CLI / TUI])
+```
+
+---
+
+### Caching — First Run vs. Subsequent Runs
+
+The graph build runs once per ICP file. After that, the same graph is reused for every test.
+
+```mermaid
+flowchart TD
+    A([prospect-sim run\n--icp icp.md\n--variants variants.json]) --> B
+
+    B[SHA256 hash\nof icp.md] --> C{Cache hit?\n~/.prospect-sim/cache.json}
+
+    C -- "✓ hit" --> D[Verify project\nstill exists on backend]
+    D -- "✓ exists" --> E["⚡ Reuse project_id\n~20 seconds"]
+    D -- "✗ deleted" --> G
+
+    C -- "✗ miss" --> G[Build graph\n~5-10 min]
+    G --> H[Save project_id\nto cache]
+    H --> E
+
+    E --> I[Run simulations\nand generate report]
+```
+
+---
+
+### System Architecture
+
+```mermaid
+flowchart TB
+    subgraph CLIENTS ["Client Layer"]
+        CLI["🖥️  prospect-sim\nAgent CLI\n(Typer, non-interactive)"]
+        TUI["🎛️  prospect-sim-tui\nHuman TUI\n(prompt_toolkit + Rich)"]
+    end
+
+    subgraph BACKEND ["Backend  :5001  (Flask)"]
+        direction TB
+        G["/api/graph/*\nICP upload\nOntology + NER\nGraph build"]
+        S["/api/simulation/*\nVariant test\nPrepare + Start\nPoll status"]
+        R["/api/report/*\nReACT report\nPoll + Fetch"]
+        CFG["/api/settings\nLLM config\nNeo4j config\n(live, no restart)"]
+    end
+
+    subgraph INFRA ["Infrastructure"]
+        NEO4J[("Neo4j\nKnowledge Graph\npersonas + relationships\nvector embeddings")]
+        LLM["LLM\nOntology · NER · Personas\nSimulation · Reports\n(OpenRouter / Ollama / etc.)"]
+        CACHE["~/.prospect-sim/\ncache.json\nconfig.json"]
+    end
+
+    CLI -->|HTTP JSON| BACKEND
+    TUI -->|HTTP JSON| BACKEND
+    CLI <-->|read/write| CACHE
+    TUI <-->|read/write| CACHE
+
+    G <--> NEO4J
+    S <--> NEO4J
+    R <--> NEO4J
+    G <--> LLM
+    S <--> LLM
+    R <--> LLM
+
+    style CLI fill:#2d1a00,color:#FF6B35
+    style TUI fill:#2d1a00,color:#FF6B35
+    style NEO4J fill:#1a3a5c,color:#fff
+    style LLM fill:#1a2d1a,color:#90ee90
+```
+
+---
+
 ## Installation
 
 **Prerequisites:**
@@ -462,41 +671,38 @@ SMART_BASE_URL=https://openrouter.ai/api/v1
 
 ---
 
-## Architecture
+## Code Structure
 
 ```
-prospect-sim CLI / TUI
-        │
-        │  HTTP  (JSON API)
-        ▼
-Flask Backend (:5001)
-  ├── /api/graph/*        Graph build + ICP upload
-  ├── /api/simulation/*   Variant simulations
-  ├── /api/report/*       ReACT ranking report
-  └── /api/settings       LLM / Neo4j config (live, no restart)
-        │
-        ├── Neo4j          Knowledge graph (personas, relationships)
-        └── LLM            Ontology, NER, personas, simulation, reports
-```
-
-**CLI package structure:**
-
-```
-backend/prospect_sim_cli/
-  main.py          — Typer root app, registers command groups
-  client.py        — HTTP client for all API calls (ApiClient, ApiError)
-  cache.py         — ICP cache (SHA256 → project_id) + CLI config
-  output.py        — Rich tables, JSON printer, spinner, error formatter
-  commands/
-    run.py         — prospect-sim run (end-to-end)
-    project.py     — prospect-sim project list/build/show
-    variant.py     — prospect-sim variant test
-    results.py     — prospect-sim results show
-    config_cmd.py  — prospect-sim config show/set/reset
-  tui.py           — Human TUI REPL (ProspectSimTUI)
-  tui_config.py    — TUI config/setup mixin (TuiConfigMixin)
-  tui_graph.py     — TUI graph command mixin (TuiGraphMixin)
-  tui_constants.py — Shared constants (ORANGE, SPINNER, SLASH_COMMANDS, LOGO)
+prospect-sim/
+├── backend/
+│   ├── app/                         Flask API
+│   │   ├── services/                Business logic
+│   │   │   ├── ontology_generator.py
+│   │   │   ├── oasis_profile_generator.py
+│   │   │   └── report_agent.py
+│   │   └── storage/
+│   │       ├── neo4j_storage.py     Graph persistence
+│   │       └── ner_extractor.py     Entity extraction
+│   │
+│   └── prospect_sim_cli/            CLI + TUI package
+│       ├── main.py                  Typer root app
+│       ├── client.py                HTTP client (ApiClient, ApiError)
+│       ├── cache.py                 ICP cache + CLI config
+│       ├── output.py                Rich tables, spinner, JSON printer
+│       ├── commands/
+│       │   ├── run.py               prospect-sim run
+│       │   ├── project.py           prospect-sim project list/build/show
+│       │   ├── variant.py           prospect-sim variant test
+│       │   ├── results.py           prospect-sim results show
+│       │   └── config_cmd.py        prospect-sim config
+│       ├── tui.py                   Human TUI REPL
+│       ├── tui_config.py            /config + /setup mixin
+│       ├── tui_graph.py             /graph mixin
+│       └── tui_constants.py         ORANGE, SPINNER, LOGO, SLASH_COMMANDS
+│
+└── frontend/                        Vue 3 web UI (optional)
+    └── src/components/GraphPanel.vue  D3 force-directed graph viz
 ```
 
 ---
