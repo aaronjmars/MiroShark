@@ -1,129 +1,379 @@
-<p align="center">
-  <img src="./docs/images/miroshark.jpg" alt="MiroShark" width="120" />
-</p>
+<div align="center">
+<pre>
+ ██████╗ ██████╗  ██████╗ ███████╗██████╗ ███████╗ ██████╗████████╗
+ ██╔══██╗██╔══██╗██╔═══██╗██╔════╝██╔══██╗██╔════╝██╔════╝╚══██╔══╝
+ ██████╔╝██████╔╝██║   ██║███████╗██████╔╝█████╗  ██║        ██║
+ ██╔═══╝ ██╔══██╗██║   ██║╚════██║██╔═══╝ ██╔══╝  ██║        ██║
+ ██║     ██║  ██║╚██████╔╝███████║██║     ███████╗╚██████╗   ██║
+ ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝     ╚══════╝ ╚═════╝   ╚═╝
+     S  I  M
+</pre>
 
-<h1 align="center">MiroShark</h1>
+**B2B Cold Email Variant Tester**
+Test your email copy against AI personas before hitting send.
 
-<p align="center">
-  <strong>Universal Swarm Intelligence Engine — Run Locally or with Any Cloud API</strong><br>
-  Multi-agent simulation engine: upload any document (press release, policy draft, financial report), and it generates hundreds of AI agents with unique personalities that simulate public reaction on social media — posts, arguments, opinion shifts — hour by hour.
-</p>
-
-<p align="center">
-  <img src="./docs/images/miroshark.gif" alt="MiroShark Demo" />
-</p>
-
-<p align="center">
-  <img src="./docs/images/miroshark-overview.jpg" alt="MiroShark Overview" />
-</p>
-
-<p align="center">
-  <img src="./docs/images/diagram1.jpg" alt="Diagram 1" />
-</p>
-
-<p align="center">
-  <img src="./docs/images/diagram2.jpg" alt="Diagram 2" />
-</p>
+</div>
 
 ---
 
-## How It Works
+## What It Does
 
-1. **Graph Build** — Extracts entities and relationships from your document into a Neo4j knowledge graph. NER uses few-shot examples and rejection rules to filter garbage entities. Chunk processing is parallelized with batched Neo4j writes (UNWIND).
-2. **Agent Setup** — Generates personas grounded in the knowledge graph. Each entity gets 5 layers of context: graph attributes, relationships, semantic search, related nodes, and LLM-powered web research (auto-triggers for public figures or when graph context is thin). Individual vs. institutional personas are detected automatically via keyword matching.
-3. **Simulation** — All three platforms (Twitter, Reddit, Polymarket) run simultaneously via `asyncio.gather`. A single LLM-generated prediction market with non-50/50 starting price drives Polymarket trading. Agents see cross-platform context: traders read Twitter/Reddit posts, social media agents see market prices. A sliding-window round memory compacts old rounds via background LLM calls. Belief states track stance, confidence, and trust per agent with heuristic updates each round.
-4. **Report** — A ReACT agent writes analytical reports using `simulation_feed` (actual posts/comments/trades), `market_state` (prices/P&L), graph search, and belief trajectory tools. Reports cite what agents actually said and how markets moved.
-5. **Interaction** — Chat directly with any agent via persona chat, or send questions to groups. Click any agent to view their full profile and simulation history.
+prospect-sim runs your B2B cold email variants against synthetic decision-maker personas derived from your ICP. It tells you which variant gets opened, which gets a reply, and — crucially — **where each one loses the prospect**.
 
-## Screenshots
+Three phases:
 
-<div align="center">
-<table>
-<tr>
-<td><img src="./docs/images/1.jpg" width="100%"/></td>
-<td><img src="./docs/images/2.jpg" width="100%"/></td>
-</tr>
-<tr>
-<td><img src="./docs/images/3.jpg" width="100%"/></td>
-<td><img src="./docs/images/4.jpg" width="100%"/></td>
-</tr>
-<tr>
-<td><img src="./docs/images/5.jpg" width="100%"/></td>
-<td><img src="./docs/images/6.jpg" width="100%"/></td>
-</tr>
-</table>
-</div>
+1. **Graph Build** — Uploads your ICP file (MD/TXT/PDF) and builds a Neo4j knowledge graph of prospect personas. Cached after first run (~5-10 min once, then ~20 sec).
+2. **Simulation** — Each email variant runs against multiple rounds of AI personas. Agents decide whether to open, reply, or drop out at each funnel stage.
+3. **Ranking** — A ReACT agent analyzes all simulations and produces a ranked result: winner, scores per variant, and dropout point (subject line / opening / body / CTA).
 
-## Architecture
+Two interfaces — pick one:
 
-### Cross-Platform Simulation Engine
+- **`prospect-sim`** — Agent-friendly CLI. Non-interactive, `--quiet` JSON output, scriptable, pipeable.
+- **`prospect-sim-tui`** — Human-friendly interactive REPL with live dashboard, orange branding, Hermes-style UX.
 
-All three platforms execute simultaneously each round. Data flows between them:
+---
 
-```
-                    ┌─────────────────────────────────────────┐
-                    │         Round Memory (sliding window)    │
-                    │  Old rounds: LLM-compacted summaries     │
-                    │  Previous round: full action detail       │
-                    │  Current round: live (partial)            │
-                    └──────┬──────────┬──────────┬────────────┘
-                           │          │          │
-                    ┌──────▼───┐ ┌────▼─────┐ ┌─▼────────────┐
-                    │ Twitter  │ │  Reddit  │ │  Polymarket   │
-                    │          │ │          │ │               │
-                    │ Posts    │ │ Comments │ │ Trades (AMM)  │
-                    │ Likes    │ │ Upvotes  │ │ Single market │
-                    │ Reposts  │ │ Threads  │ │ Buy/Sell/Wait │
-                    └──────┬───┘ └────┬─────┘ └─┬────────────┘
-                           │          │          │
-                    ┌──────▼──────────▼──────────▼────────────┐
-                    │         Market-Media Bridge              │
-                    │  Social sentiment → trader prompts       │
-                    │  Market prices → social media prompts    │
-                    │  Social posts → trader observation       │
-                    └──────┬──────────┬──────────┬────────────┘
-                           │          │          │
-                    ┌──────▼──────────▼──────────▼────────────┐
-                    │         Belief State (per agent)         │
-                    │  Positions: topic → stance (-1 to +1)    │
-                    │  Confidence: topic → certainty (0 to 1)  │
-                    │  Trust: agent → trust level (0 to 1)     │
-                    └─────────────────────────────────────────┘
+## Installation
+
+**Prerequisites:**
+- Python 3.11+
+- The prospect-sim backend running locally or remotely (see [Backend Setup](#backend-setup))
+
+```bash
+# Clone the repo
+git clone https://github.com/Catafal/prospect-sim
+cd prospect-sim/backend
+
+# Install with uv (recommended)
+uv pip install -e .
+
+# Or with pip
+pip install -e .
 ```
 
-### Polymarket Integration
+This registers two commands: `prospect-sim` and `prospect-sim-tui`.
 
-A single prediction market is generated by the LLM during config creation, tailored to the simulation's core question. The AMM uses constant-product pricing with non-50/50 initial prices based on the LLM's probability estimate. Traders see actual Twitter/Reddit posts in their observation prompt alongside portfolio and market data.
-
-### Performance
-
-| Optimization | Before | After |
-|---|---|---|
-| Neo4j writes | 1 transaction per entity | Batched UNWIND (10x faster) |
-| Chunk processing | Sequential | Parallel ThreadPoolExecutor (3x faster) |
-| Config generation | Sequential batches | Parallel batches (3x faster) |
-| Platform execution | Twitter+Reddit parallel, Polymarket sequential | All 3 parallel |
-| Memory compaction | Blocking | Background thread |
-
-### Web Enrichment
-
-When generating personas for public figures (politicians, CEOs, founders) or when graph context is thin (<150 chars), the system makes an LLM research call to enrich the profile with real-world data. Set `WEB_SEARCH_MODEL=perplexity/sonar-pro` in `.env` for grounded web search via OpenRouter.
+---
 
 ## Quick Start
 
+### 1. Prepare your files
+
+**ICP file** (`icp.md`) — describe your ideal customer:
+
+```markdown
+# ICP: HR Directors at Series B+ SaaS
+
+## Role
+Head of People or HR Director at B2B SaaS companies (100-500 employees).
+Responsible for talent acquisition, retention, and performance management.
+
+## Pain Points
+- Manual onboarding takes 3+ weeks...
+- Employee engagement scores declining post-COVID...
+
+## Context
+Reports to CEO or COO. Budget authority for $50k-$200k/year on HR tech.
+```
+
+**Variants file** (`variants.json`) — up to 6 email variants:
+
+```json
+[
+  {
+    "id": 1,
+    "label": "Problem-led",
+    "hook_type": "problem",
+    "subject_line": "Your onboarding is costing you hires",
+    "opening": "Most HR Directors we talk to lose 2-3 offers a month to slow onboarding...",
+    "body": "Skillia cuts onboarding from 3 weeks to 3 days with AI micro-learning paths...",
+    "cta": "Worth a 15-min call this week?"
+  },
+  {
+    "id": 2,
+    "label": "Social-proof-led",
+    "hook_type": "social_proof",
+    "subject_line": "How Typeform's HR team cut onboarding 70%",
+    "opening": "Typeform's HR Director was dealing with the same problem you likely are...",
+    "body": "They deployed Skillia across 200 new hires last quarter...",
+    "cta": "I can show you exactly what they did — 15 min?"
+  }
+]
+```
+
+### 2. Run
+
+```bash
+# Full test — builds graph, simulates, ranks
+prospect-sim run --icp icp.md --variants variants.json
+
+# Preview what would happen, without running
+prospect-sim run --icp icp.md --variants variants.json --dry-run
+
+# CI/CD — clean JSON output, no prompts
+prospect-sim run --icp icp.md --variants variants.json --quiet --yes | jq '.winner'
+
+# More rounds for higher confidence
+prospect-sim run --icp icp.md --variants variants.json --rounds 16 --parallel
+```
+
+### 3. Or use the interactive TUI
+
+```bash
+prospect-sim-tui
+```
+
+---
+
+## Agent CLI Reference
+
+### `prospect-sim run`
+
+The main command. Does everything end-to-end.
+
+```
+prospect-sim run --icp <file> --variants <file> [OPTIONS]
+
+Options:
+  --icp <file>               ICP profile file (MD/TXT/PDF)              [required]
+  --variants <file>          Variants JSON file (max 6 variants)        [required]
+  --rounds <int>             Simulation rounds per variant              [default: 8]
+  --parallel/--sequential    Run variants in parallel or sequentially   [default: sequential]
+  --dry-run                  Show execution plan without running
+  --quiet                    Output clean JSON only (pipeable)
+  --yes, -y                  Skip confirmation prompts (unattended/CI)
+  --api-url <url>            Backend URL                                [env: PROSPECT_SIM_API_URL]
+```
+
+**Output (default):**
+```
+Variant Ranking
+┌─────┬─────────────────────┬────────────┬───────┬─────────┬──────────────┐
+│ #   │ Variant             │ Hook       │ Opens │ Replies │ Main Dropout │
+├─────┼─────────────────────┼────────────┼───────┼─────────┼──────────────┤
+│ 👑1 │ Problem-led         │ problem    │ 78%   │ 34%     │ none         │
+│   2 │ Social-proof-led    │ social_... │ 61%   │ 19%     │ opening      │
+└─────┴─────────────────────┴────────────┴───────┴─────────┴──────────────┘
+
+🏆 Winner: Problem-led
+```
+
+**Output (`--quiet`, pipeable JSON):**
+```json
+{
+  "winner": "Problem-led",
+  "ranking": [...],
+  "failure_points": {"1": "none", "2": "opening"},
+  "simulation_ids": ["sim_abc123", "sim_def456"]
+}
+```
+
+**Machine-readable errors:**
+```json
+{"error": "backend_unavailable", "fix": "cd backend && uv run python run.py", "docs": "prospect-sim config set api-url <url>"}
+```
+
+---
+
+### `prospect-sim project`
+
+Manage ICP knowledge graph projects.
+
+```bash
+# List all cached projects (no backend needed)
+prospect-sim project list
+prospect-sim project list --quiet | jq '.[0].project_id'
+
+# Build graph for an ICP file (cached after first run)
+prospect-sim project build --icp icp.md
+prospect-sim project build --icp icp.md --name "Skillia ICP v2"
+
+# Show project details from backend
+prospect-sim project show --project-id proj_abc123
+```
+
+---
+
+### `prospect-sim variant`
+
+Run simulations on an already-built project.
+
+```bash
+# Test variants against an existing cached project
+prospect-sim variant test --project-id proj_abc123 --variants variants.json
+
+# Or let it look up the project from ICP cache
+prospect-sim variant test --icp icp.md --variants variants.json
+
+# With options
+prospect-sim variant test --icp icp.md --variants variants.json --rounds 12 --parallel --quiet
+```
+
+---
+
+### `prospect-sim results`
+
+Inspect simulation results.
+
+```bash
+# Show ranking for a simulation
+prospect-sim results show --sim-id sim_abc123
+
+# Status check only (no report generation)
+prospect-sim results show --sim-id sim_abc123 --status
+```
+
+---
+
+### `prospect-sim config`
+
+Manage CLI configuration (stored in `~/.prospect-sim/config.json`).
+
+```bash
+# Show current config (CLI + backend live settings)
+prospect-sim config show
+
+# Set a value
+prospect-sim config set api-url http://my-server:5001
+prospect-sim config set default-rounds 12
+prospect-sim config set default-parallel true
+
+# Reset to defaults
+prospect-sim config reset
+```
+
+**Config keys:**
+
+| Key | Description | Default |
+|---|---|---|
+| `api-url` | Backend URL | `http://localhost:5001` |
+| `default-rounds` | Rounds per variant | `8` |
+| `default-parallel` | Parallel mode | `false` |
+
+---
+
+## Human TUI Reference
+
+```bash
+prospect-sim-tui [--api-url <url>]
+```
+
+Drops into an interactive REPL. First launch runs a 30-second setup wizard.
+
+### Slash Commands
+
+#### Simulation
+
+| Command | Description |
+|---|---|
+| `/icp <file>` | Load an ICP file (tab-autocomplete). Builds graph if not cached — reuses in ~20s if cached. |
+| `/add` | Interactive wizard to add an email variant to the session. |
+| `/variants` | Show all current variants in a table. |
+| `/rm <n>` | Remove variant by number. |
+| `/run` | Simulate all variants. Shows live braille-spinner dashboard per variant. Prints ranking inline on completion. |
+| `/why <n\|label>` | Explain why a variant ranked where it did. |
+| `/graph` | Show the ICP knowledge graph structure — entity types, node/edge counts, breakdown bar chart. |
+| `/graph open` | Same, plus opens the D3 force-directed visualization in your browser. |
+
+#### Session
+
+| Command | Description |
+|---|---|
+| `/rounds <n>` | Set rounds per variant (default: 8). |
+| `/parallel` | Toggle parallel / sequential simulation mode. |
+| `/history` | Show all cached ICP projects. |
+| `/clear` | Clear all current variants. |
+| `/new` | Reset session — clear ICP, variants, and results. |
+
+#### Configuration
+
+| Command | Description |
+|---|---|
+| `/config` | Show all settings (CLI keys + live backend settings). |
+| `/config set <key> <value>` | Change a setting. Keys: `api-url`, `rounds`, `parallel`, `model`, `base-url`, `api-key`. |
+| `/config test` | Fire a test call to the current LLM and report latency. |
+| `/setup` | Re-run the setup wizard. |
+
+**Config keys in TUI:**
+
+| Key | Stored | Description |
+|---|---|---|
+| `api-url` | `~/.prospect-sim/config.json` | Backend URL |
+| `rounds` | `~/.prospect-sim/config.json` | Default rounds |
+| `parallel` | `~/.prospect-sim/config.json` | Parallel mode |
+| `model` | Backend in-memory | LLM model name |
+| `base-url` | Backend in-memory | LLM base URL (for Ollama) |
+| `api-key` | Backend in-memory | LLM API key |
+
+#### Other
+
+| Command | Description |
+|---|---|
+| `/help` | Show command reference. |
+| `/quit` | Exit. |
+
+---
+
+## ICP Graph Caching
+
+The graph build (~5-10 min) runs once per unique ICP file. The SHA256 hash of the file is stored in `~/.prospect-sim/cache.json` alongside the `project_id`.
+
+On subsequent runs — CLI or TUI — the cache is checked first:
+
+```
+/icp icp.md  →  [SHA256 match]  →  ⚡ reusing project proj_abc123  (~20s)
+               [no match]      →  Building graph...  (~5-10 min)
+```
+
+The cache also validates the project still exists on the backend. If it was deleted, it rebuilds and re-caches automatically.
+
+**Cache location:** `~/.prospect-sim/cache.json`
+
+---
+
+## Variants File Format
+
+```json
+[
+  {
+    "id": 1,                          // unique integer (required)
+    "label": "Problem-led",           // display name (required)
+    "hook_type": "problem",           // one of: problem, social_proof, insight, curiosity, value
+    "subject_line": "...",            // email subject
+    "opening": "...",                 // first 1-2 sentences
+    "body": "...",                    // main copy
+    "cta": "..."                      // call to action
+  }
+]
+```
+
+Max 6 variants per run. All fields except `id` and `label` are passed to the simulation as copy content — include whatever email elements you want tested.
+
+---
+
+## Backend Setup
+
+prospect-sim talks to the Flask backend over HTTP. The backend handles LLM calls, Neo4j, and simulations.
+
+```bash
+cd backend
+cp .env.example .env  # configure LLM + Neo4j
+uv run python run.py  # starts on :5001
+```
+
 ### One-Click Cloud Deploy
 
-Deploy MiroShark to the cloud in under 3 minutes — no local setup required.
+Deploy the backend to the cloud in under 3 minutes — no local setup required.
 
 **Before you deploy, create:**
-1. A free [Neo4j Aura](https://neo4j.com/cloud/aura-free/) instance — grab the `NEO4J_URI` (starts with `neo4j+s://`) and password from the dashboard.
-2. An [OpenRouter](https://openrouter.ai/) API key — used for LLM calls and embeddings. Free credits available on signup.
+1. A free [Neo4j Aura](https://neo4j.com/cloud/aura-free/) instance — grab the `NEO4J_URI` (starts with `neo4j+s://`) and password.
+2. An [OpenRouter](https://openrouter.ai/) API key — free credits on signup.
 
-**Railway** (recommended — includes persistent storage and a free trial):
+**Railway** (recommended — persistent storage, free trial):
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.app/new/template?template=https://github.com/aaronjmars/MiroShark)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.app/new/template?template=https://github.com/Catafal/prospect-sim)
 
-After clicking deploy, set these environment variables in the Railway dashboard:
+Set these environment variables in the Railway dashboard:
 
 | Variable | Value |
 |---|---|
@@ -131,62 +381,28 @@ After clicking deploy, set these environment variables in the Railway dashboard:
 | `NEO4J_URI` | Your Aura URI (`neo4j+s://...`) |
 | `NEO4J_PASSWORD` | Your Aura password |
 | `EMBEDDING_API_KEY` | Same OpenRouter key |
-| `OPENAI_API_KEY` | Same OpenRouter key |
 
-**Render** (free tier available — 750 hrs/month, spins down after 15 min idle):
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aaronjmars/MiroShark)
-
-Render reads `render.yaml` automatically. Set the same environment variables above when prompted.
-
-> **Note:** Cloud deploys use OpenRouter for all LLM calls. Ollama is not available in this mode. Both platforms expose MiroShark on a public HTTPS URL — no port forwarding needed.
-
----
-
-### Prerequisites
-
-- An OpenAI-compatible API key *(including OpenRouter, OpenAI, Anthropic, etc.)*, Ollama for local inference, **or** Claude Code CLI
-- Python 3.11+, Node.js 18+, Neo4j 5.15+ **or** Docker & Docker Compose
-
----
-
-### Quick Start: `./miroshark`
-
-The launcher script handles everything — dependency checks, Neo4j startup, package installation, and launching both frontend and backend:
+Then point the CLI at your deployed URL:
 
 ```bash
-cp .env.example .env   # configure your LLM + Neo4j settings
-./miroshark
+prospect-sim config set api-url https://your-app.up.railway.app
 ```
 
-What it does:
-1. Checks Python 3.11+, Node 18+, uv, Neo4j/Docker
-2. Starts Neo4j if not already running (Docker or native)
-3. Installs frontend + backend dependencies if missing
-4. Kills stale processes on ports 3000/5001
-5. Launches Vite dev server (`:3000`) and Flask API (`:5001`)
-6. Ctrl+C to stop everything
-
 ---
 
-### Option A: Cloud API (no GPU needed)
+### LLM Configuration
 
-Only Neo4j runs locally. LLM and embeddings use a cloud provider.
+#### Cloud (OpenRouter) — no GPU needed
 
-```bash
-# 1. Start Neo4j (or: brew install neo4j && brew services start neo4j)
-docker run -d --name neo4j \
-  -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/miroshark \
-  neo4j:5.15-community
-
-# 2. Configure
-cp .env.example .env
-```
-
-Edit `.env` (example using OpenRouter):
+| Model | ID | Cost/sim | Notes |
+|---|---|---|---|
+| **Qwen3 235B A22B** ⭐ | `qwen/qwen3-235b-a22b-2507` | ~$0.30 | Best overall |
+| GPT-5 Nano | `openai/gpt-5-nano` | ~$0.41 | Budget option |
+| Gemini 2.5 Flash Lite | `google/gemini-2.5-flash-lite` | ~$0.58 | Good alt |
+| DeepSeek V3.2 | `deepseek/deepseek-v3.2` | ~$1.11 | Stronger reasoning |
 
 ```bash
+# .env
 LLM_API_KEY=sk-or-v1-your-key
 LLM_BASE_URL=https://openrouter.ai/api/v1
 LLM_MODEL_NAME=qwen/qwen3-235b-a22b-2507
@@ -198,330 +414,97 @@ EMBEDDING_API_KEY=sk-or-v1-your-key
 EMBEDDING_DIMENSIONS=768
 ```
 
-```bash
-npm run setup:all && npm run dev
-```
+#### Local (Ollama) — no API key needed
 
-Open `http://localhost:3000` — backend API at `http://localhost:5001`.
-
----
-
-### Option B: Docker — Local Ollama
-
-```bash
-git clone https://github.com/aaronjmars/MiroShark.git
-cd MiroShark
-docker compose up -d
-
-# Pull models into Ollama
-docker exec miroshark-ollama ollama pull qwen3.5:27b
-docker exec miroshark-ollama ollama pull nomic-embed-text
-```
-
-Open `http://localhost:3000`.
-
----
-
-### Option C: Manual — Local Ollama
-
-```bash
-# 1. Start Neo4j
-docker run -d --name neo4j \
-  -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/miroshark \
-  neo4j:5.15-community
-
-# 2. Start Ollama & pull models
-ollama serve &
-ollama pull qwen3.5:27b
-ollama pull nomic-embed-text
-
-# 3. Configure & run
-cp .env.example .env
-npm run setup:all
-npm run dev
-```
-
----
-
-### Option D: Claude Code (no API key needed)
-
-Use your Claude Pro/Max subscription as the LLM backend via the local Claude Code CLI. No API key or GPU required — just a logged-in `claude` installation.
-
-```bash
-# 1. Install Claude Code (if not already)
-npm install -g @anthropic-ai/claude-code
-
-# 2. Log in (opens browser)
-claude
-
-# 3. Start Neo4j
-docker run -d --name neo4j \
-  -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/miroshark \
-  neo4j:5.15-community
-
-# 4. Configure
-cp .env.example .env
-```
-
-Edit `.env`:
-
-```bash
-LLM_PROVIDER=claude-code
-# Optional: pick a specific model (default uses your Claude Code default)
-# CLAUDE_CODE_MODEL=claude-sonnet-4-20250514
-```
-
-You still need embeddings — use a cloud provider or local Ollama for those (Claude Code doesn't support embeddings). You also still need Ollama or a cloud API for the CAMEL-AI simulation rounds (see coverage table below).
-
-```bash
-npm run setup:all && npm run dev
-```
-
-> **What's covered:** When `LLM_PROVIDER=claude-code`, all MiroShark services route through Claude Code — graph building (ontology, NER), agent profile generation, simulation config, report generation, and persona chat. The only exception is the CAMEL-AI simulation engine itself, which requires an OpenAI-compatible API (Ollama or cloud) since it manages its own LLM connections internally.
-
-| Component | Claude Code | Needs separate LLM |
-|---|---|---|
-| Graph building (ontology + NER) | Yes | — |
-| Agent profile generation | Yes | — |
-| Simulation config generation | Yes | — |
-| Report generation | Yes | — |
-| Persona chat | Yes | — |
-| CAMEL-AI simulation rounds | — | Yes (Ollama or cloud) |
-| Embeddings | — | Yes (Ollama or cloud) |
-
-> **Performance note:** Each LLM call spawns a `claude -p` subprocess (~2-5s overhead). Best for small simulations or hybrid mode — use Ollama/cloud for the high-volume simulation rounds, Claude Code for everything else.
-
----
-
-## Configuration
-
-### Recommended Models
-
-A typical simulation runs ~40 turns × 100+ agents. Pick a model that balances cost and quality for that volume.
-
-#### Cloud (OpenRouter)
-
-| Model | ID | Cost/sim | Notes |
-|---|---|---|---|
-| **Qwen3 235B A22B** ⭐ | `qwen/qwen3-235b-a22b-2507` | ~$0.30 | Best overall |
-| GPT-5 Nano | `openai/gpt-5-nano` | ~$0.41 | Budget option |
-| Gemini 2.5 Flash Lite | `google/gemini-2.5-flash-lite` | ~$0.58 | Good alt |
-| DeepSeek V3.2 | `deepseek/deepseek-v3.2` | ~$1.11 | Stronger agentic reasoning |
-
-**Embeddings:** `openai/text-embedding-3-small` on OpenRouter. Keep `EMBEDDING_DIMENSIONS=768`.
-
-#### Local (Ollama)
-
-> **Context override required.** Ollama defaults to 4096 tokens, but MiroShark prompts need 10–30k. Create a custom Modelfile:
+> **Context override required.** Ollama defaults to 4096 tokens, but prompts need 10-30k. Create a custom Modelfile:
 >
 > ```bash
 > printf 'FROM qwen3:14b\nPARAMETER num_ctx 32768' > Modelfile
-> ollama create mirosharkai -f Modelfile
+> ollama create prospect-sim-llm -f Modelfile
 > ```
 
 | Model | VRAM | Speed | Notes |
 |---|---|---|---|
-| `qwen3.5:27b` | 20GB+ | ~40 t/s | Best quality |
-| `qwen3.5:35b-a3b` *(MoE)* | 16GB | ~112 t/s | Fastest — MoE activates only 3B params |
-| `qwen3:14b` | 12GB | ~60 t/s | Solid balance |
-| `qwen3:8b` | 8GB | ~42 t/s | Minimum viable; 40K context limit |
+| `qwen3.5:27b` | 20 GB+ | ~40 t/s | Best quality |
+| `qwen3.5:35b-a3b` *(MoE)* | 16 GB | ~112 t/s | Fastest |
+| `qwen3:14b` | 12 GB | ~60 t/s | Solid balance |
+| `qwen3:8b` | 8 GB | ~42 t/s | Minimum viable |
 
 **Hardware quick-pick:**
 
 | Setup | Model |
 |---|---|
-| RTX 3090/4090 or M2 Pro 32GB+ | `qwen3.5:27b` |
-| RTX 4080 / M2 Pro 16GB | `qwen3.5:35b-a3b` |
+| RTX 3090/4090 or M2 Pro 32 GB+ | `qwen3.5:27b` |
+| RTX 4080 / M2 Pro 16 GB | `qwen3.5:35b-a3b` |
 | RTX 4070 / M1 Pro | `qwen3:14b` |
-| 8GB VRAM / laptop | `qwen3:8b` |
-
-**Embeddings locally:** `ollama pull nomic-embed-text` — 768 dimensions, matches Neo4j default.
-
-**Hybrid tip:** Run local for simulation rounds (high-volume), route to a cloud model only for final report generation. Most users land here naturally — see **Smart Model** below.
-
-### Smart Model
-
-Set `SMART_MODEL_NAME` to route intelligence-sensitive workflows through a stronger model while keeping everything else on your default (cheaper/faster) model. When not set, all workflows use the same model.
-
-**What uses the smart model:**
-
-| Workflow | Why |
-|---|---|
-| Report generation | Multi-turn reasoning, end-user facing output |
-| Ontology extraction | Foundational — defines the entire knowledge graph schema |
-| Graph reasoning | Sub-question generation, deep search during reports |
-
-**Everything else** (NER extraction, profile generation, simulation config) stays on the default model — these are high-volume and don't need top-tier reasoning.
-
-**Example configs:**
+| 8 GB VRAM / laptop | `qwen3:8b` |
 
 ```bash
-# Ollama for bulk work, Claude Code for reports
-LLM_MODEL_NAME=qwen3.5:27b
-SMART_PROVIDER=claude-code
-SMART_MODEL_NAME=claude-sonnet-4-20250514
-
-# Ollama for bulk work, OpenRouter premium for reports
-LLM_MODEL_NAME=qwen3.5:27b
-SMART_PROVIDER=openai
-SMART_API_KEY=sk-or-v1-your-key
-SMART_BASE_URL=https://openrouter.ai/api/v1
-SMART_MODEL_NAME=anthropic/claude-sonnet-4
-
-# Same provider, just a bigger model for reports
-LLM_MODEL_NAME=qwen3:8b
-SMART_MODEL_NAME=qwen3.5:27b
-```
-
-If only `SMART_MODEL_NAME` is set (without `SMART_PROVIDER`/`SMART_BASE_URL`/`SMART_API_KEY`), the smart model inherits the default provider settings — useful when you just want a bigger model on the same backend.
-
-### NER Model
-
-Set `NER_MODEL_NAME` to route entity extraction through a faster, cheaper model. NER is a high-volume mechanical task (structured JSON output, low temperature) — it doesn't need a 235B parameter model. A 14B-30B model runs 5-10x faster with equivalent extraction quality.
-
-```bash
-# Use a fast MoE model for NER on OpenRouter
-NER_MODEL_NAME=qwen/qwen3-30b-a3b
-
-# Or a local Ollama model
-NER_MODEL_NAME=qwen3:14b
-```
-
-When not set, NER uses the default LLM. The model routing stacks with Smart Model — you can run three tiers:
-
-| Workflow | Model | Why |
-|---|---|---|
-| NER extraction | `qwen3:14b` (fast, local) | High-volume, structured output, doesn't need reasoning |
-| Simulation rounds, profiles, config | `qwen3.5:27b` (default) | Balanced cost/quality for bulk work |
-| Reports, ontology, graph reasoning | `claude-sonnet-4` (smart) | Needs strong reasoning for end-user output |
-
-### Environment Variables
-
-All settings live in `.env` (copy from `.env.example`):
-
-```bash
-# LLM (default — used for bulk/high-volume workflows)
-LLM_PROVIDER=openai                # "openai" (default) or "claude-code"
-LLM_API_KEY=ollama                  # Not needed for claude-code mode
+# .env for Ollama
+LLM_API_KEY=ollama
 LLM_BASE_URL=http://localhost:11434/v1
-LLM_MODEL_NAME=qwen3.5:27b
+LLM_MODEL_NAME=qwen3:14b
 
-# Smart model (optional — used for reports, ontology, graph reasoning)
-# SMART_PROVIDER=claude-code       # "openai", "claude-code", or empty (inherit)
-# SMART_MODEL_NAME=claude-sonnet-4-20250514
-# SMART_API_KEY=                    # Only if different from LLM_API_KEY
-# SMART_BASE_URL=                   # Only if different from LLM_BASE_URL
-
-# Claude Code mode (only when LLM_PROVIDER=claude-code)
-# CLAUDE_CODE_MODEL=claude-sonnet-4-20250514
-
-# NER model (optional — faster model for entity extraction)
-# NER_MODEL_NAME=qwen/qwen3-30b-a3b  # Or any smaller/faster model
-# NER_API_KEY=                         # Only if different from LLM_API_KEY
-# NER_BASE_URL=                        # Only if different from LLM_BASE_URL
-
-# Neo4j
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=miroshark
-
-# Embeddings
-EMBEDDING_PROVIDER=ollama          # "ollama" or "openai"
+EMBEDDING_PROVIDER=ollama
 EMBEDDING_MODEL=nomic-embed-text
 EMBEDDING_BASE_URL=http://localhost:11434
 EMBEDDING_DIMENSIONS=768
-
-# Web Enrichment (auto-researches public figures during persona generation)
-WEB_ENRICHMENT_ENABLED=true
-# WEB_SEARCH_MODEL=perplexity/sonar-pro  # Optional: grounded web search via OpenRouter
 ```
 
-
----
-
-## Observability & Debugging
-
-MiroShark includes a built-in observability system that gives real-time visibility into every LLM call, agent decision, graph build step, and simulation round.
-
-### Debug Panel
-
-Press **Ctrl+Shift+D** anywhere in the UI to open the debug panel. Four tabs:
-
-| Tab | What it shows |
-|-----|--------------|
-| **Live Feed** | Real-time SSE event stream — every LLM call, agent action, round boundary, graph build step, and error. Color-coded, filterable by platform/agent/text, expandable for full detail. |
-| **LLM Calls** | Table of all LLM calls with caller, model, input/output tokens, latency. Click to expand full prompt and response (when `MIROSHARK_LOG_PROMPTS=true`). Aggregate stats at top. |
-| **Agent Trace** | Per-agent decision timeline — what the agent observed, what the LLM responded, what action was parsed, success/failure. |
-| **Errors** | Filtered error view with stack traces. |
-
-### Event Stream
-
-All events are written as append-only JSONL:
-- `backend/logs/events.jsonl` — global (all Flask-process events)
-- `uploads/simulations/{id}/events.jsonl` — per-simulation (includes subprocess events)
-
-#### SSE Endpoint
-
-```
-GET /api/observability/events/stream?simulation_id=sim_xxx&event_types=llm_call,error
-```
-
-Returns `text/event-stream` with live events. The debug panel uses this automatically.
-
-#### REST Endpoints
-
-```
-GET /api/observability/events?simulation_id=sim_xxx&from_line=0&limit=200
-GET /api/observability/stats?simulation_id=sim_xxx
-GET /api/observability/llm-calls?simulation_id=sim_xxx&caller=ner_extractor
-```
-
-### Event Types
-
-| Type | Emitted by | Data |
-|------|-----------|------|
-| `llm_call` | Every LLM call (NER, ontology, profiles, config, reports) | model, tokens, latency, caller, response preview |
-| `agent_decision` | Agent `perform_action_by_llm()` during simulation | env observation, LLM response, parsed action, tool calls |
-| `round_boundary` | Simulation loop (start/end of each round) | simulated hour, active agents, action count, elapsed time |
-| `graph_build` | Graph builder lifecycle | phase, node/edge counts, chunk progress |
-| `error` | Any caught exception with traceback | error class, message, traceback, context |
-
-### Configuration
+**Tip:** Use a fast local model for simulation rounds (high-volume) and route only report generation to a cloud model with `SMART_MODEL_NAME`:
 
 ```bash
-# .env
-MIROSHARK_LOG_PROMPTS=true    # Log full LLM prompts/responses (large files, debug only)
-MIROSHARK_LOG_LEVEL=info      # debug|info|warn — controls event verbosity
+LLM_MODEL_NAME=qwen3:14b                     # bulk simulation work
+SMART_MODEL_NAME=anthropic/claude-sonnet-4   # reports + ontology (via OpenRouter)
+SMART_API_KEY=sk-or-v1-your-key
+SMART_BASE_URL=https://openrouter.ai/api/v1
 ```
-
-By default, only response previews (200 chars) are logged. Set `MIROSHARK_LOG_PROMPTS=true` to capture full prompts and responses for deep debugging.
 
 ---
 
-## Hardware Requirements
+## Architecture
 
-**Local (Ollama):**
+```
+prospect-sim CLI / TUI
+        │
+        │  HTTP  (JSON API)
+        ▼
+Flask Backend (:5001)
+  ├── /api/graph/*        Graph build + ICP upload
+  ├── /api/simulation/*   Variant simulations
+  ├── /api/report/*       ReACT ranking report
+  └── /api/settings       LLM / Neo4j config (live, no restart)
+        │
+        ├── Neo4j          Knowledge graph (personas, relationships)
+        └── LLM            Ontology, NER, personas, simulation, reports
+```
 
-| | Minimum | Recommended |
-|---|---|---|
-| RAM | 16 GB | 32 GB |
-| VRAM | 10 GB | 24 GB |
-| Disk | 20 GB | 50 GB |
+**CLI package structure:**
 
-**Cloud mode:** No GPU needed — just Neo4j and an API key. Any 4 GB RAM machine works.
+```
+backend/prospect_sim_cli/
+  main.py          — Typer root app, registers command groups
+  client.py        — HTTP client for all API calls (ApiClient, ApiError)
+  cache.py         — ICP cache (SHA256 → project_id) + CLI config
+  output.py        — Rich tables, JSON printer, spinner, error formatter
+  commands/
+    run.py         — prospect-sim run (end-to-end)
+    project.py     — prospect-sim project list/build/show
+    variant.py     — prospect-sim variant test
+    results.py     — prospect-sim results show
+    config_cmd.py  — prospect-sim config show/set/reset
+  tui.py           — Human TUI REPL (ProspectSimTUI)
+  tui_config.py    — TUI config/setup mixin (TuiConfigMixin)
+  tui_graph.py     — TUI graph command mixin (TuiGraphMixin)
+  tui_constants.py — Shared constants (ORANGE, SPINNER, SLASH_COMMANDS, LOGO)
+```
 
-## Use Cases
-
-- **PR crisis testing** — simulate public reaction to a press release before publishing
-- **Trading signals** — feed financial news and observe simulated market sentiment
-- **Policy analysis** — test draft regulations against a simulated public
-- **Creative experiments** — feed a novel with a lost ending; agents write a narratively consistent conclusion
-
-Support the project : 0xd7bc6a05a56655fb2052f742b012d1dfd66e1ba3
-AGPL-3.0. See [LICENSE](./LICENSE).
+---
 
 ## Credits
 
-Built on [MiroFish](https://github.com/666ghj/MiroFish) by [666ghj](https://github.com/666ghj) (Shanda Group). Neo4j + Ollama storage layer adapted from [MiroFish-Offline](https://github.com/nikmcfly/MiroFish-Offline) by [nikmcfly](https://github.com/nikmcfly). Simulation engine powered by [OASIS](https://github.com/camel-ai/oasis) (CAMEL-AI).
+Built on [MiroShark](https://github.com/aaronjmars/MiroShark) — multi-agent swarm simulation engine.
+Simulation engine powered by [OASIS](https://github.com/camel-ai/oasis) (CAMEL-AI).
+TUI design inspired by [Hermes Agent](https://github.com/nousresearch/hermes-agent) (NousResearch).
+
+AGPL-3.0.
