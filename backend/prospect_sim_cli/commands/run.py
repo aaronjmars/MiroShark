@@ -92,16 +92,14 @@ def _build_icp_graph(
     icp: Path,
     icp_hash: str,
     quiet: bool,
+    project_requirement: str = "",
 ) -> str:
     """
     Upload ICP file, generate ontology, build graph, cache project_id.
     Returns project_id.
     """
     project_name = icp.stem.replace("-", " ").replace("_", " ").title()
-    requirement = (
-        "Test B2B cold email copy variants against HR Director / Head of People personas. "
-        "Focus on open rate, reply intent, and dropout point analysis."
-    )
+    requirement = project_requirement or "Simulate variants against target personas."
 
     # Step 1: upload + ontology
     print_info("Uploading ICP file and generating ontology...", quiet)
@@ -223,22 +221,23 @@ def run(
     variants: Annotated[Path, typer.Option("--variants", help="Variants JSON file", show_default=False)],
     rounds: Annotated[int, typer.Option("--rounds", help="Simulation rounds per variant")] = 8,
     parallel: Annotated[bool, typer.Option("--parallel/--sequential", help="Run variants in parallel or sequentially")] = False,
+    simulation_requirement: Annotated[str, typer.Option("--simulation-requirement", help="What the simulation should evaluate (default: rank variants by persona response)")] = "",
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show execution plan without running")] = False,
     quiet: Annotated[bool, typer.Option("--quiet", help="Output clean JSON only (pipeable)")] = False,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompts (unattended)")] = False,
-    api_url: Annotated[str, typer.Option("--api-url", envvar="PROSPECT_SIM_API_URL", help="Backend URL", hidden=True)] = "",
+    api_url: Annotated[str, typer.Option("--api-url", envvar="MIROSHARK_API_URL", help="Backend URL", hidden=True)] = "",
 ) -> None:
     """
-    Run a full B2B cold email variant test.
+    Run a full variant test: build ICP graph, simulate, rank results.
 
-    Builds ICP knowledge graph (cached after first run), simulates each email
-    variant against synthetic decision-maker personas, and ranks by reply intent.
+    Builds ICP knowledge graph (cached after first run), simulates each variant
+    against synthetic target personas, and ranks by engagement.
 
     Examples:
-      prospect-sim run --icp icp.md --variants variants.json
-      prospect-sim run --icp icp.md --variants variants.json --parallel --rounds 12
-      prospect-sim run --icp icp.md --variants variants.json --dry-run
-      prospect-sim run --icp icp.md --variants variants.json --quiet | jq '.winner'
+      miroshark run --icp icp.md --variants variants.json
+      miroshark run --icp icp.md --variants variants.json --parallel --rounds 12
+      miroshark run --icp icp.md --variants variants.json --dry-run
+      miroshark run --icp icp.md --variants variants.json --quiet | jq '.winner'
     """
     # Resolve API URL (flag > env > config file)
     config = CliConfig()
@@ -302,14 +301,14 @@ def run(
             print_error(exc.code, exc.message, exc.fix, exc.docs, exit_code=2)
 
     # ── Phase 2: Variant simulations ─────────────────────────────────────
-    simulation_requirement = (
-        "Rank email copy variants by reply intent. Identify dropout points "
-        "(subject_line / opening / body / cta) for each variant."
+    # Use caller-supplied requirement or fall back to a sensible generic default
+    resolved_sim_requirement = (
+        simulation_requirement or "Rank variants by persona engagement. Identify dropout points for each variant."
     )
     try:
         run_ids = _run_simulations(
             client, project_id, variants_data,
-            simulation_requirement, parallel, rounds, quiet,
+            resolved_sim_requirement, parallel, rounds, quiet,
         )
     except ApiError as exc:
         print_error(exc.code, exc.message, exc.fix, exc.docs, exit_code=2)

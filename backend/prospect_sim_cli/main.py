@@ -1,16 +1,16 @@
 """
-prospect-sim CLI — entry point.
+miroshark CLI — entry point.
 
 Registers all command groups and exposes the root Typer app.
-Installed as `prospect-sim` via [project.scripts] in pyproject.toml.
+Installed as `miroshark` via [project.scripts] in pyproject.toml.
 
 Command tree:
-  prospect-sim run          — full end-to-end variant test (main command)
-  prospect-sim project      — ICP project management (list / build / show)
-  prospect-sim variant      — run simulations on a pre-built project (test)
-  prospect-sim results      — fetch and display simulation results (show)
-  prospect-sim config       — CLI configuration (show / set / reset)
-  prospect-sim runs         — list and delete past runs
+  miroshark run          — full end-to-end variant test (main command)
+  miroshark project      — ICP project management (list / build / show)
+  miroshark variant      — run simulations on a pre-built project (test)
+  miroshark results      — fetch and display simulation results (show)
+  miroshark config       — CLI configuration (show / set / reset)
+  miroshark runs         — list and delete past runs
 """
 
 from __future__ import annotations
@@ -27,11 +27,11 @@ from . import __version__
 
 # Root application
 app = typer.Typer(
-    name="prospect-sim",
+    name="miroshark",
     help=(
-        "B2B cold email variant testing via synthetic persona simulation.\n\n"
+        "Variant testing via synthetic persona simulation.\n\n"
         "Quickstart:\n"
-        "  prospect-sim run --icp icp.md --variants variants.json\n\n"
+        "  miroshark run --icp icp.md --variants variants.json\n\n"
         "First run builds the ICP knowledge graph (~5-10 min). "
         "Subsequent runs reuse the cached graph (~20 sec)."
     ),
@@ -43,7 +43,7 @@ app = typer.Typer(
 def _version_callback(value: bool) -> None:
     """Print version and exit."""
     if value:
-        typer.echo(f"prospect-sim {__version__}")
+        typer.echo(f"miroshark {__version__}")
         raise typer.Exit()
 
 
@@ -58,7 +58,7 @@ def root(
         help="Show version and exit.",
     ),
 ) -> None:
-    """prospect-sim — agent-friendly B2B cold email simulation CLI."""
+    """miroshark — agent-friendly synthetic persona variant simulation CLI."""
 
 
 # Register command groups

@@ -1,7 +1,7 @@
 """
 ICP file cache — maps SHA256(icp_file_content) → project_id.
 
-Stored at ~/.prospect-sim/cache.json.
+Stored at ~/.miroshark/cache.json.
 This is the core performance feature: build the ICP graph once,
 reuse it for all subsequent variant runs.
 
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-CACHE_DIR = Path.home() / ".prospect-sim"
+CACHE_DIR = Path.home() / ".miroshark"
 CACHE_FILE = CACHE_DIR / "cache.json"
 CONFIG_FILE = CACHE_DIR / "config.json"
 

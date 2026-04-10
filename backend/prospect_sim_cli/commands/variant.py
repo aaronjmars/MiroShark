@@ -35,7 +35,7 @@ def variant_test(
     rounds: Annotated[int, typer.Option("--rounds", help="Simulation rounds per variant")] = 8,
     parallel: Annotated[bool, typer.Option("--parallel/--sequential")] = False,
     quiet: Annotated[bool, typer.Option("--quiet")] = False,
-    api_url: Annotated[str, typer.Option("--api-url", envvar="PROSPECT_SIM_API_URL", hidden=True)] = "",
+    api_url: Annotated[str, typer.Option("--api-url", envvar="MIROSHARK_API_URL", hidden=True)] = "",
 ) -> None:
     """
     Run simulations for a variants JSON file against a pre-built ICP project.

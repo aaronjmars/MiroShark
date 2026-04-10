@@ -1,7 +1,7 @@
 """
-prospect-sim human TUI — interactive REPL for cold email variant testing.
+miroshark human TUI — interactive REPL for synthetic persona variant testing.
 
-Designed for humans, not agents. Drop into a session with `prospect-sim-tui`,
+Designed for humans, not agents. Drop into a session with `miroshark-tui`,
 load your ICP, build variants interactively, watch simulations run live.
 
 Brand colour: orange (#FF6B35).
@@ -76,7 +76,7 @@ class SlashCompleter(Completer):
 
 class ProspectSimTUI(TuiConfigMixin, TuiGraphMixin):
     """
-    Interactive REPL session for prospect-sim.
+    Interactive REPL session for miroshark.
 
     Session state:
       icp_path     — currently loaded ICP file
@@ -253,10 +253,7 @@ class ProspectSimTUI(TuiConfigMixin, TuiGraphMixin):
 
         self._print_info(f"Building ICP graph for {path.name} (~5-10 min)…")
         project_name = path.stem.replace("-", " ").replace("_", " ").title()
-        requirement = (
-            "Test B2B cold email copy variants against HR Director / Head of People personas. "
-            "Focus on open rate, reply intent, and dropout point analysis."
-        )
+        requirement = "Simulate variants against target personas."
         try:
             with self.console.status(
                 f"[{ORANGE}]Generating ontology…[/{ORANGE}]", spinner="dots"
@@ -1052,16 +1049,16 @@ class ProspectSimTUI(TuiConfigMixin, TuiGraphMixin):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
-    """Entry point for `prospect-sim-tui` script."""
+    """Entry point for `miroshark-tui` script."""
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="prospect-sim human TUI — interactive cold email variant tester",
+        description="miroshark human TUI — interactive synthetic persona variant tester",
         add_help=True,
     )
     parser.add_argument(
         "--api-url",
-        default=os.environ.get("PROSPECT_SIM_API_URL", ""),
+        default=os.environ.get("MIROSHARK_API_URL", ""),
         help="Backend URL (default: from config or http://localhost:5001)",
     )
     args = parser.parse_args()

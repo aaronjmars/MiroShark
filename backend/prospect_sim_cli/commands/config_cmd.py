@@ -1,7 +1,7 @@
 """
-`prospect-sim config` — manage CLI configuration.
+`miroshark config` — manage CLI configuration.
 
-Stores persistent settings in ~/.prospect-sim/config.json.
+Stores persistent settings in ~/.miroshark/config.json.
 Supported keys: api_url, default_rounds, default_parallel.
 
 Rule 1: non-interactive — all via flags/arguments.
@@ -39,8 +39,8 @@ def config_show(
     Show current CLI configuration.
 
     Examples:
-      prospect-sim config show
-      prospect-sim config show --quiet | jq '.api_url'
+      miroshark config show
+      miroshark config show --quiet | jq '.api_url'
     """
     config = CliConfig()
     data = config.all()
@@ -48,8 +48,8 @@ def config_show(
     if quiet:
         print_json(data)
     else:
-        typer.echo("\nprospect-sim configuration:")
-        typer.echo(f"  Config file: ~/.prospect-sim/config.json")
+        typer.echo("\nmiroshark configuration:")
+        typer.echo(f"  Config file: ~/.miroshark/config.json")
         for k, v in data.items():
             typer.echo(f"  {k}: {v}")
         typer.echo()
@@ -64,9 +64,9 @@ def config_set(
     Set a configuration value.
 
     Examples:
-      prospect-sim config set api-url http://localhost:5001
-      prospect-sim config set default-rounds 12
-      prospect-sim config set default-parallel true
+      miroshark config set api-url http://localhost:5001
+      miroshark config set default-rounds 12
+      miroshark config set default-parallel true
     """
     if key not in VALID_KEYS:
         print_error(
@@ -104,7 +104,7 @@ def config_reset() -> None:
     Reset all configuration to defaults.
 
     Examples:
-      prospect-sim config reset
+      miroshark config reset
     """
     from ..cache import CONFIG_FILE
     if CONFIG_FILE.exists():

@@ -78,6 +78,9 @@ dev = [
 ]
 
 [project.scripts]
+miroshark = "prospect_sim_cli.main:main"
+miroshark-tui = "prospect_sim_cli.tui:main"
+# Keep prospect-sim aliases for backward compatibility with Catafal/prospect-sim fork
 prospect-sim = "prospect_sim_cli.main:main"
 prospect-sim-tui = "prospect_sim_cli.tui:main"
 

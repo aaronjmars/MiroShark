@@ -1,5 +1,5 @@
 """
-prospect-sim runs — list, inspect, and delete past simulation runs.
+miroshark runs — list, inspect, and delete past simulation runs.
 
 Commands:
   runs list           List all past runs as a Rich table (or JSON with --quiet).
@@ -598,7 +598,7 @@ def runs_rm(
                 )
             console.print(
                 f"[red]Error:[/red] {identifier!r} is not a project_id or row number.\n"
-                "[dim]Usage: prospect-sim runs rm <project_id|number>[/dim]"
+                "[dim]Usage: miroshark runs rm <project_id|number>[/dim]"
             )
             raise typer.Exit(1)
 

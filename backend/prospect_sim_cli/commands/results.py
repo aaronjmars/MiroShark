@@ -30,7 +30,7 @@ def results_show(
     sim_id: Annotated[str, typer.Option("--sim-id", help="Simulation ID to fetch results for", show_default=False)],
     status_only: Annotated[bool, typer.Option("--status", help="Show run status only, skip report generation")] = False,
     quiet: Annotated[bool, typer.Option("--quiet")] = False,
-    api_url: Annotated[str, typer.Option("--api-url", envvar="PROSPECT_SIM_API_URL", hidden=True)] = "",
+    api_url: Annotated[str, typer.Option("--api-url", envvar="MIROSHARK_API_URL", hidden=True)] = "",
 ) -> None:
     """
     Fetch and display results for a completed simulation.

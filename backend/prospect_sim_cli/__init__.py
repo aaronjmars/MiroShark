@@ -1,5 +1,5 @@
 """
-prospect-sim CLI — B2B cold email variant testing engine.
+miroshark CLI — synthetic persona variant simulation engine.
 Agent-friendly: non-interactive, pipeable JSON, idempotent, --dry-run.
 """
 

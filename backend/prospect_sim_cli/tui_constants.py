@@ -49,6 +49,6 @@ LOGO = f"""[bold {ORANGE}]
  ██╔═══╝ ██╔══██╗██║   ██║╚════██║██╔═══╝ ██╔══╝  ██║        ██║
  ██║     ██║  ██║╚██████╔╝███████║██║     ███████╗╚██████╗   ██║
  ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝     ╚══════╝ ╚═════╝   ╚═╝
-[/][dim]  ·  B2B Cold Email Variant Simulator  ·  Type /help to start[/dim]"""
+[/][dim]  ·  Synthetic Persona Variant Simulator  ·  Type /help to start[/dim]"""
 
-LOGO_COMPACT = f"[bold {ORANGE}]📧 PROSPECT SIM[/]  [dim]B2B Cold Email Variant Simulator[/dim]"
+LOGO_COMPACT = f"[bold {ORANGE}]⚡ MIROSHARK[/]  [dim]Synthetic Persona Variant Simulator[/dim]"

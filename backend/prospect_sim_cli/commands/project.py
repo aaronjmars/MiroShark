@@ -35,7 +35,7 @@ def project_list(
     """
     List all locally cached ICP projects.
 
-    Reads ~/.prospect-sim/cache.json — no backend connection required.
+    Reads ~/.miroshark/cache.json — no backend connection required.
 
     Examples:
       prospect-sim project list
@@ -56,7 +56,7 @@ def project_build(
     force: Annotated[bool, typer.Option("--force", "-f", help="Rebuild even if cached")] = False,
     quiet: Annotated[bool, typer.Option("--quiet", help="Output clean JSON only")] = False,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompts")] = False,
-    api_url: Annotated[str, typer.Option("--api-url", envvar="PROSPECT_SIM_API_URL", hidden=True)] = "",
+    api_url: Annotated[str, typer.Option("--api-url", envvar="MIROSHARK_API_URL", hidden=True)] = "",
 ) -> None:
     """
     Build the ICP knowledge graph and cache the project_id.
@@ -110,10 +110,7 @@ def project_build(
 
     # Build the graph
     project_name = icp.stem.replace("-", " ").replace("_", " ").title()
-    requirement = (
-        "Test B2B cold email copy variants against HR Director / Head of People personas. "
-        "Focus on open rate, reply intent, and dropout point analysis."
-    )
+    requirement = "Simulate variants against target personas."
 
     try:
         print_info("Uploading ICP file and generating ontology...", quiet)
@@ -146,7 +143,7 @@ def project_show(
     project_id: Annotated[Optional[str], typer.Argument(help="Project ID to inspect")] = None,
     icp: Annotated[Optional[Path], typer.Option("--icp", help="Look up project by ICP file")] = None,
     quiet: Annotated[bool, typer.Option("--quiet", help="Output clean JSON only")] = False,
-    api_url: Annotated[str, typer.Option("--api-url", envvar="PROSPECT_SIM_API_URL", hidden=True)] = "",
+    api_url: Annotated[str, typer.Option("--api-url", envvar="MIROSHARK_API_URL", hidden=True)] = "",
 ) -> None:
     """
     Show details for a cached ICP project.
