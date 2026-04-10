@@ -23,10 +23,51 @@
       >{{ compareMode ? (compareSelections.length === 2 ? 'Compare →' : `${compareSelections.length}/2 selected`) : '⇄ Compare' }}</button>
     </div>
 
-    <!-- Cards container (only shown when projects exist) -->
-    <div v-if="projects.length > 0" class="cards-container" :class="{ expanded: isExpanded }" :style="containerStyle">
+    <!-- Search & Filter Bar -->
+    <div v-if="projects.length > 0" class="search-filter-bar">
+      <div class="search-input-wrap">
+        <input
+          v-model="searchQuery"
+          class="search-input"
+          placeholder="Search scenarios..."
+          type="text"
+        />
+        <span v-if="searchQuery" class="search-clear" @click="searchQuery = ''">×</span>
+      </div>
+      <div class="filter-controls">
+        <select v-model="statusFilter" class="filter-select">
+          <option value="all">All Status</option>
+          <option value="completed">Completed</option>
+          <option value="in-progress">In Progress</option>
+          <option value="not-started">Not Started</option>
+        </select>
+        <select v-model="dateFilter" class="filter-select">
+          <option value="all">All Time</option>
+          <option value="today">Today</option>
+          <option value="week">This Week</option>
+          <option value="month">This Month</option>
+        </select>
+        <select v-model="sortOrder" class="filter-select">
+          <option value="newest">Newest First</option>
+          <option value="oldest">Oldest First</option>
+          <option value="most-agents">Most Agents</option>
+          <option value="most-rounds">Most Rounds</option>
+        </select>
+        <label class="forks-only-label">
+          <input type="checkbox" v-model="forksOnly" class="forks-only-check" />
+          Forks Only
+        </label>
+      </div>
+      <span
+        v-if="filteredProjects.length !== projects.length"
+        class="filter-result-count"
+      >{{ filteredProjects.length }} / {{ projects.length }}</span>
+    </div>
+
+    <!-- Cards container (only shown when filtered projects exist) -->
+    <div v-if="filteredProjects.length > 0" class="cards-container" :class="{ expanded: isExpanded }" :style="containerStyle">
       <div
-        v-for="(project, index) in projects"
+        v-for="(project, index) in filteredProjects"
         :key="project.simulation_id"
         class="project-card"
         :class="{ expanded: isExpanded, hovering: hoveringCard === index }"
@@ -116,6 +157,13 @@
         <!-- Bottom decoration line (expands on hover) -->
         <div class="card-bottom-line"></div>
       </div>
+    </div>
+
+    <!-- No results state (projects exist but filters hide them all) -->
+    <div v-else-if="projects.length > 0 && !loading" class="no-results-state">
+      <span class="no-results-icon">◇</span>
+      <span class="no-results-text">No simulations match your filters</span>
+      <button class="clear-filters-btn" @click="clearFilters">Clear Filters</button>
     </div>
 
     <!-- Loading State -->
@@ -291,11 +339,83 @@ let observer = null
 const compareMode = ref(false)
 const compareSelections = ref([])
 
+// Search & filter state (persisted in localStorage)
+const searchQuery = ref(localStorage.getItem('sim-search-query') || '')
+const statusFilter = ref(localStorage.getItem('sim-status-filter') || 'all')
+const dateFilter = ref(localStorage.getItem('sim-date-filter') || 'all')
+const sortOrder = ref(localStorage.getItem('sim-sort-order') || 'newest')
+const forksOnly = ref(localStorage.getItem('sim-forks-only') === 'true')
+
 // Fork mode
 const showForkPanel = ref(false)
 const forkRequirement = ref('')
 const forking = ref(false)
 const forkError = ref('')
+
+// Filtered and sorted project list
+const filteredProjects = computed(() => {
+  let result = [...projects.value]
+
+  // Text search on simulation requirement
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase()
+    result = result.filter(p =>
+      (p.simulation_requirement || '').toLowerCase().includes(q)
+    )
+  }
+
+  // Status filter
+  if (statusFilter.value !== 'all') {
+    result = result.filter(p => {
+      const current = p.current_round || 0
+      const total = p.total_rounds || 0
+      if (statusFilter.value === 'completed') return total > 0 && current >= total
+      if (statusFilter.value === 'in-progress') return current > 0 && current < total
+      if (statusFilter.value === 'not-started') return current === 0
+      return true
+    })
+  }
+
+  // Date range filter
+  if (dateFilter.value !== 'all') {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    result = result.filter(p => {
+      if (!p.created_at) return false
+      const created = new Date(p.created_at)
+      if (dateFilter.value === 'today') return created >= today
+      if (dateFilter.value === 'week') return created >= new Date(today.getTime() - 7 * 86400000)
+      if (dateFilter.value === 'month') return created >= new Date(today.getTime() - 30 * 86400000)
+      return true
+    })
+  }
+
+  // Forks only
+  if (forksOnly.value) {
+    result = result.filter(p => !!p.parent_simulation_id)
+  }
+
+  // Sort
+  if (sortOrder.value === 'oldest') {
+    result = result.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+  } else if (sortOrder.value === 'most-agents') {
+    result = result.sort((a, b) => (b.profiles_count || 0) - (a.profiles_count || 0))
+  } else if (sortOrder.value === 'most-rounds') {
+    result = result.sort((a, b) => (b.total_rounds || 0) - (a.total_rounds || 0))
+  }
+  // 'newest' is already sorted by API
+
+  return result
+})
+
+// Clear all filters
+const clearFilters = () => {
+  searchQuery.value = ''
+  statusFilter.value = 'all'
+  dateFilter.value = 'all'
+  sortOrder.value = 'newest'
+  forksOnly.value = false
+}
 
 const toggleCompareMode = () => {
   if (compareMode.value && compareSelections.value.length === 2) {
@@ -347,7 +467,7 @@ const containerStyle = computed(() => {
   }
 
   // Expanded state: dynamically compute height based on card count
-  const total = projects.value.length
+  const total = filteredProjects.value.length
   if (total === 0) {
     return { minHeight: '280px' }
   }
@@ -361,7 +481,7 @@ const containerStyle = computed(() => {
 
 // Get card style
 const getCardStyle = (index) => {
-  const total = projects.value.length
+  const total = filteredProjects.value.length
 
   if (isExpanded.value) {
     // Expanded state: grid layout
@@ -727,6 +847,13 @@ const initObserver = () => {
     observer.observe(historyContainer.value)
   }
 }
+
+// Persist filter state to localStorage
+watch(searchQuery, v => localStorage.setItem('sim-search-query', v))
+watch(statusFilter, v => localStorage.setItem('sim-status-filter', v))
+watch(dateFilter, v => localStorage.setItem('sim-date-filter', v))
+watch(sortOrder, v => localStorage.setItem('sim-sort-order', v))
+watch(forksOnly, v => localStorage.setItem('sim-forks-only', String(v)))
 
 // Watch route changes, reload data when returning to home page
 watch(() => route.path, (newPath) => {
@@ -1753,5 +1880,167 @@ onUnmounted(() => {
 .fork-cancel-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ===== Search & Filter Bar ===== */
+.search-filter-bar {
+  position: relative;
+  z-index: 100;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 0 40px 18px;
+  font-family: var(--font-mono);
+}
+
+.search-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.search-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 28px 0 10px;
+  background: #F5F5F5;
+  border: 1px solid rgba(10, 10, 10, 0.12);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #0A0A0A;
+  outline: none;
+  box-sizing: border-box;
+  letter-spacing: 0.5px;
+  transition: border-color 0.2s;
+}
+
+.search-input::placeholder {
+  color: rgba(10, 10, 10, 0.3);
+  letter-spacing: 0.5px;
+}
+
+.search-input:focus {
+  border-color: #FF6B1A;
+}
+
+.search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1rem;
+  color: rgba(10, 10, 10, 0.4);
+  cursor: pointer;
+  line-height: 1;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.search-clear:hover {
+  color: #FF6B1A;
+}
+
+.filter-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-select {
+  height: 32px;
+  padding: 0 8px;
+  background: #F5F5F5;
+  border: 1px solid rgba(10, 10, 10, 0.12);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(10, 10, 10, 0.6);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 20px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(10,10,10,0.3)'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+}
+
+.filter-select:focus,
+.filter-select:hover {
+  border-color: #FF6B1A;
+}
+
+.forks-only-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: rgba(10, 10, 10, 0.5);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+}
+
+.forks-only-check {
+  width: 13px;
+  height: 13px;
+  accent-color: #FFB347;
+  cursor: pointer;
+}
+
+.filter-result-count {
+  font-size: 11px;
+  color: rgba(10, 10, 10, 0.4);
+  letter-spacing: 2px;
+  white-space: nowrap;
+  border: 1px solid rgba(10, 10, 10, 0.08);
+  padding: 3px 8px;
+  background: #F5F5F5;
+}
+
+/* ===== No Results State ===== */
+.no-results-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 56px;
+  color: rgba(10, 10, 10, 0.4);
+}
+
+.no-results-icon {
+  font-size: 2rem;
+  opacity: 0.3;
+}
+
+.no-results-text {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.clear-filters-btn {
+  padding: 6px 16px;
+  border: 1px solid rgba(10, 10, 10, 0.15);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(10, 10, 10, 0.5);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.clear-filters-btn:hover {
+  border-color: #FF6B1A;
+  color: #FF6B1A;
 }
 </style>
