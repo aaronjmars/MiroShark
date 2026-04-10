@@ -65,3 +65,15 @@ backend/uploads/
 
 # Docker data
 data/
+
+# prospect-sim: private ICP / outreach data — NEVER commit
+skillia/
+inputs/
+inputs/private/
+profiles/
+profiles/private/
+*.icp.json
+*.prospects.json
+*.outreach.csv
+backend/data/private/
+sample_data/private/

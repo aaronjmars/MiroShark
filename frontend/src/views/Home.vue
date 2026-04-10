@@ -4,6 +4,9 @@
     <nav class="navbar">
       <div class="nav-brand">MIROSHARK</div>
       <div class="nav-links">
+        <button class="variant-test-btn" @click="router.push('/variant-test')" title="B2B Email Copy Testing">
+          ✉ Variant Test
+        </button>
         <a href="https://github.com/aaronjmars/MiroShark" target="_blank" class="github-link">
           GitHub <span class="arrow">↗</span>
         </a>
@@ -408,6 +411,25 @@ const startSimulation = () => {
 .nav-links {
   display: flex;
   align-items: center;
+}
+
+/* ── Variant Test nav button ── */
+.variant-test-btn {
+  background: none;
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  color: rgba(167, 139, 250, 0.8);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  padding: 4px 10px;
+  margin-right: var(--space-md);
+  transition: var(--transition-fast);
+}
+
+.variant-test-btn:hover {
+  border-color: rgba(167, 139, 250, 0.9);
+  color: #a78bfa;
 }
 
 .github-link {

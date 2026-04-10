@@ -81,6 +81,10 @@ class Config:
         'browse_markets', 'buy_shares', 'sell_shares',
         'view_portfolio', 'create_market', 'comment_on_market', 'do_nothing'
     ]
+    # Email inbox simulation actions (prospect-sim B2B copy variant testing)
+    WONDERWALL_INBOX_ACTIONS = [
+        'open_email', 'read_email', 'reply', 'forward', 'archive', 'do_nothing'
+    ]
     
     # Web Enrichment — LLM-powered research for persona generation
     # Triggers for notable figures (politicians, CEOs, etc.) or when graph context is thin

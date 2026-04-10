@@ -3288,3 +3288,147 @@ def compare_simulations():
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
+
+
+# ============== Email Inbox Variant Test Endpoint ==============
+
+@simulation_bp.route('/run-variant-test', methods=['POST'])
+def run_variant_test():
+    """Run N email copy variants against synthetic B2B personas (prospect-sim).
+
+    Accepts a project_id with ICP seed data already built into the graph,
+    plus a list of email copy variants to test. Each variant runs as a
+    separate simulation. Returns a run_ids list for status polling.
+
+    Body (JSON):
+    {
+        "project_id": "proj_abc123",
+        "variants": [
+            {"id": 1, "label": "Variant A", "subject_line": "...", "body": "...", "hook_type": "problem"},
+            {"id": 2, "label": "Variant B", "subject_line": "...", "body": "...", "hook_type": "timeline"}
+        ],
+        "simulation_requirement": "Test cold email copy variants against HR Director personas...",
+        "parallel": false,
+        "num_rounds": 8
+    }
+
+    Response:
+    {
+        "success": true,
+        "run_mode": "sequential" | "parallel",
+        "variant_run_ids": [
+            {"variant_id": 1, "variant_label": "Variant A", "simulation_id": "sim_xyz"},
+            ...
+        ]
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "JSON body required"}), 400
+
+        project_id = data.get("project_id")
+        variants = data.get("variants", [])
+        simulation_requirement = data.get("simulation_requirement", "")
+        parallel = bool(data.get("parallel", False))
+        num_rounds = int(data.get("num_rounds", 8))
+
+        if not project_id:
+            return jsonify({"success": False, "error": "project_id is required"}), 400
+        if not variants:
+            return jsonify({"success": False, "error": "At least one variant is required"}), 400
+        if len(variants) > 6:
+            return jsonify({"success": False, "error": "Maximum 6 variants per test run"}), 400
+
+        project = ProjectManager.get_project(project_id)
+        if not project:
+            return jsonify({"success": False, "error": f"Project not found: {project_id}"}), 404
+
+        if not project.graph_id:
+            return jsonify({
+                "success": False,
+                "error": "Project graph not built yet. Run graph build first."
+            }), 400
+
+        # Persist variants on the project so the report agent can reference them
+        project.variants = variants
+        project.simulation_type = "email_inbox"
+        if simulation_requirement:
+            project.simulation_requirement = simulation_requirement
+        ProjectManager.save_project(project)
+
+        run_mode = "parallel" if parallel else "sequential"
+        logger.info(
+            f"Starting variant test: project={project_id}, "
+            f"variants={len(variants)}, mode={run_mode}, rounds={num_rounds}"
+        )
+
+        variant_run_ids = []
+
+        def _start_one_variant(variant: dict) -> dict:
+            """Create and start a simulation for a single variant."""
+            vid = variant.get("id", 0)
+            label = variant.get("label", f"Variant {vid}")
+
+            # Build simulation-specific requirement string injecting the variant copy
+            variant_requirement = (
+                f"{simulation_requirement}\n\n"
+                f"--- EMAIL VARIANT UNDER TEST ---\n"
+                f"Variant: {label}\n"
+                f"Hook type: {variant.get('hook_type', 'unknown')}\n"
+                f"Subject: {variant.get('subject_line', '')}\n"
+                f"Body: {variant.get('body', '')}\n"
+                f"--- END VARIANT ---"
+            )
+
+            # Create simulation via SimulationManager (instance method, not classmethod)
+            # Disable social platforms — email inbox uses its own Wonderwall module
+            manager = SimulationManager()
+            state = manager.create_simulation(
+                project_id=project_id,
+                graph_id=project.graph_id,
+                enable_twitter=False,
+                enable_reddit=False,
+                enable_polymarket=False,
+            )
+
+            return {
+                "variant_id": vid,
+                "variant_label": label,
+                "simulation_id": state.simulation_id,
+                "status": "created",
+            }
+
+        if parallel:
+            # Launch all variants concurrently using threads
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(variants)) as executor:
+                futures = {executor.submit(_start_one_variant, v): v for v in variants}
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+                    variant_run_ids.append(result)
+        else:
+            # Sequential: create all simulations (start triggers are separate)
+            for variant in variants:
+                result = _start_one_variant(variant)
+                variant_run_ids.append(result)
+
+        # Sort by variant_id for consistent ordering
+        variant_run_ids.sort(key=lambda x: x["variant_id"])
+
+        return jsonify({
+            "success": True,
+            "run_mode": run_mode,
+            "project_id": project_id,
+            "variant_run_ids": variant_run_ids,
+            "total_variants": len(variants),
+            "num_rounds": num_rounds,
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to start variant test: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
