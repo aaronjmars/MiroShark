@@ -25,6 +25,7 @@ DROPOUT_COLORS = {
 SLASH_COMMANDS = [
     "/icp", "/add", "/variants", "/rm", "/run",
     "/why", "/graph", "/rounds", "/parallel", "/history",
+    "/runs", "/runs graph", "/runs report", "/runs show",
     "/config", "/setup", "/clear", "/new", "/help", "/quit",
 ]
 

@@ -67,6 +67,7 @@ backend/uploads/
 data/
 
 # prospect-sim: private ICP / outreach data — NEVER commit
+skillia/
 inputs/
 inputs/private/
 profiles/

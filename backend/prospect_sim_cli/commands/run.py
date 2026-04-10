@@ -243,7 +243,8 @@ def run(
     # Resolve API URL (flag > env > config file)
     config = CliConfig()
     resolved_url = api_url or config.get("api_url") or "http://localhost:5001"
-    client = ApiClient(base_url=resolved_url)
+    # Ontology generation can take 60-90s with local LLMs — use a generous timeout
+    client = ApiClient(base_url=resolved_url, timeout=120)
     cache = IcpCache()
 
     # ── Validate inputs ──────────────────────────────────────────────────

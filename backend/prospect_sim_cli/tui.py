@@ -200,6 +200,7 @@ class ProspectSimTUI(TuiConfigMixin, TuiGraphMixin):
             "/run": lambda _: self._cmd_run(),
             "/why": self._cmd_why,
             "/graph": self._cmd_graph,
+            "/runs": self._cmd_runs,
             "/rounds": self._cmd_rounds,
             "/parallel": lambda _: self._cmd_parallel(),
             "/history": lambda _: self._cmd_history(),
@@ -707,6 +708,11 @@ class ProspectSimTUI(TuiConfigMixin, TuiGraphMixin):
             ("/why <n|label>",       "Explain why a variant ranked where it did."),
             ("/graph",               "Show ICP knowledge graph structure (entity types, counts)."),
             ("/graph open",          "Same, and open the D3 visualization in your browser."),
+            ("/runs",                "List all past runs (name, ICP file, sims, reports, disk)."),
+            ("/runs show <n>",       "Inspect a run: graph entity breakdown, agents, report outline."),
+            ("/runs graph <n>",      "Show graph nodes (entities) and edges (relationships)."),
+            ("/runs report <n>",     "Render the full simulation report inline."),
+            ("/runs rm <n>",         "Delete run by number — removes graph, files, and cache entry."),
             ("── Session ─────────────────", ""),
             ("/rounds <n>",          "Set rounds per variant (default: 8)."),
             ("/parallel",            "Toggle parallel / sequential simulation mode."),
@@ -727,6 +733,314 @@ class ProspectSimTUI(TuiConfigMixin, TuiGraphMixin):
 
         self.console.print()
         self.console.print(table)
+        self.console.print()
+
+    def _cmd_runs(self, args: str) -> None:
+        """
+        List all past runs, or delete one by number.
+
+        /runs          — show the list table
+        /runs rm <n>   — delete run #n (confirms inline)
+        """
+        parts = args.strip().split(None, 1)
+        sub = parts[0].lower() if parts else ""
+
+        if sub == "graph":
+            # ── Show graph nodes + edges ────────────────────────────────
+            n_str = parts[1].strip() if len(parts) > 1 else ""
+            if not n_str:
+                self._print_err("Usage: /runs graph <number>")
+                return
+            with self.console.status(f"[{ORANGE}]Fetching graph…[/{ORANGE}]", spinner="dots"):
+                try:
+                    runs = self.client.get_runs()
+                    row = int(n_str)
+                    if row < 1 or row > len(runs):
+                        self._print_err(f"Row {row} out of range (1–{len(runs)}).")
+                        return
+                    project_id = runs[row - 1]["project_id"]
+                    detail = self.client.get_run_detail(project_id)
+                    graph_id = detail.get("project", {}).get("graph_id")
+                    if not graph_id:
+                        self._print_err("No graph built for this run.")
+                        return
+                    data = self.client.get_graph_data(graph_id)
+                except (ApiError, ValueError) as exc:
+                    self._print_err(str(exc))
+                    return
+            # Delegate to CLI renderer
+            from .commands.runs import runs_graph as _runs_graph_cmd  # noqa — import for renderer only
+            from .commands import runs as runs_mod
+            # Build a fake detail dict and call the graph renderer directly
+            nodes = data.get("nodes", [])
+            edges = data.get("edges", [])
+            self._render_graph_inline(nodes, edges, graph_id)
+
+        elif sub == "report":
+            # ── Show full report ─────────────────────────────────────────
+            n_str = parts[1].strip() if len(parts) > 1 else ""
+            if not n_str:
+                self._print_err("Usage: /runs report <number>")
+                return
+            with self.console.status(f"[{ORANGE}]Fetching report…[/{ORANGE}]", spinner="dots"):
+                try:
+                    runs = self.client.get_runs()
+                    row = int(n_str)
+                    if row < 1 or row > len(runs):
+                        self._print_err(f"Row {row} out of range (1–{len(runs)}).")
+                        return
+                    project_id = runs[row - 1]["project_id"]
+                    detail = self.client.get_run_detail(project_id)
+                    report_id = None
+                    for sim in detail.get("simulations", []):
+                        for rep in sim.get("reports", []):
+                            report_id = rep.get("report_id")
+                            if report_id:
+                                break
+                        if report_id:
+                            break
+                    if not report_id:
+                        self._print_hint("No report found for this run.")
+                        return
+                    report = self.client.get_report(report_id)
+                except ApiError as exc:
+                    self._print_err(f"Could not fetch report: {exc.message}")
+                    return
+            from rich.markdown import Markdown
+            md = report.get("markdown_content") or ""
+            if not md:
+                self._print_hint("Report is empty.")
+                return
+            self.console.print()
+            self.console.print(Panel(
+                Markdown(md),
+                title=f"[bold {ORANGE}]Report[/bold {ORANGE}]",
+                border_style=ORANGE,
+                padding=(1, 2),
+            ))
+            self.console.print()
+
+        elif sub == "show":
+            # ── Inspect run ─────────────────────────────────────────────
+            n_str = parts[1].strip() if len(parts) > 1 else ""
+            if not n_str:
+                self._print_err("Usage: /runs show <number>  (use /runs to see the list)")
+                return
+
+            with self.console.status(f"[{ORANGE}]Fetching runs…[/{ORANGE}]", spinner="dots"):
+                try:
+                    runs = self.client.get_runs()
+                except ApiError as exc:
+                    self._print_err(f"Could not fetch runs: {exc.message}")
+                    return
+
+            try:
+                row = int(n_str)
+            except ValueError:
+                self._print_err(f"{n_str!r} is not a valid row number.")
+                return
+
+            if row < 1 or row > len(runs):
+                self._print_err(f"Row {row} is out of range (1–{len(runs)}).")
+                return
+
+            project_id = runs[row - 1]["project_id"]
+
+            with self.console.status(f"[{ORANGE}]Loading run detail…[/{ORANGE}]", spinner="dots"):
+                try:
+                    detail = self.client.get_run_detail(project_id)
+                except ApiError as exc:
+                    self._print_err(f"Could not fetch run detail: {exc.message}")
+                    return
+
+            # Delegate rendering to the CLI renderer (same output, same style)
+            from .commands.runs import _render_run_detail
+            _render_run_detail(detail)
+
+        elif sub == "rm":
+            # ── Delete run ──────────────────────────────────────────────
+            n_str = parts[1].strip() if len(parts) > 1 else ""
+            if not n_str:
+                self._print_err("Usage: /runs rm <number>  (use /runs to see the list)")
+                return
+
+            # Fetch runs to resolve the number → project_id
+            with self.console.status(f"[{ORANGE}]Fetching runs…[/{ORANGE}]", spinner="dots"):
+                try:
+                    runs = self.client.get_runs()
+                except ApiError as exc:
+                    self._print_err(f"Could not fetch runs: {exc.message}")
+                    return
+
+            try:
+                row = int(n_str)
+            except ValueError:
+                self._print_err(f"{n_str!r} is not a valid row number.")
+                return
+
+            if row < 1 or row > len(runs):
+                self._print_err(f"Row {row} is out of range (1–{len(runs)}).")
+                return
+
+            run = runs[row - 1]
+            project_id = run["project_id"]
+            name = run.get("name", project_id)
+            n_sims = run.get("total_simulations", 0)
+            n_reports = run.get("total_reports", 0)
+
+            # Confirm inline before destroying data
+            self.console.print(
+                f"[bold {ORANGE}]Delete[/bold {ORANGE}] "
+                f"[bold]{name}[/bold] ([{DIM}]{project_id}[/{DIM}]) "
+                f"with {n_sims} sim(s) and {n_reports} report(s)? [y/N] ",
+                end="",
+            )
+            answer = input().strip().lower()
+            if answer not in ("y", "yes"):
+                self._print_hint("Aborted.")
+                return
+
+            with self.console.status(f"[{ORANGE}]Deleting…[/{ORANGE}]", spinner="dots"):
+                try:
+                    result = self.client.delete_run(project_id)
+                except ApiError as exc:
+                    self._print_err(f"Delete failed: {exc.message}")
+                    return
+
+            # Clear local cache entry (CLI owns this, not the backend)
+            from .cache import IcpCache
+            cache = IcpCache()
+            data = cache._load()
+            hash_to_remove = next(
+                (h for h, v in data.items() if v.get("project_id") == project_id), None
+            )
+            if hash_to_remove:
+                cache.delete(hash_to_remove)
+
+            sims_del = result.get("deleted_simulations", 0)
+            reports_del = result.get("deleted_reports", 0)
+            graph_del = result.get("graph_deleted", False)
+            cache_str = "cleared" if hash_to_remove else "not found"
+            self._print_hint(
+                f"Deleted {name} — "
+                f"sims: {sims_del}, reports: {reports_del}, "
+                f"graph: {'yes' if graph_del else 'no'}, cache: {cache_str}"
+            )
+
+            # Reset session if we just deleted the loaded project
+            if hasattr(self, "project_id") and self.project_id == project_id:
+                self.project_id = None
+                self.graph_id = None
+                self._print_hint("Active project cleared (it was the deleted run).")
+
+        else:
+            # ── List runs ──────────────────────────────────────────────
+            with self.console.status(f"[{ORANGE}]Fetching runs…[/{ORANGE}]", spinner="dots"):
+                try:
+                    runs = self.client.get_runs()
+                except ApiError as exc:
+                    self._print_err(f"Could not fetch runs: {exc.message}")
+                    return
+
+            if not runs:
+                self._print_hint("No runs found.")
+                return
+
+            table = Table(
+                show_header=True,
+                header_style=f"bold {ORANGE}",
+                border_style=DIM,
+                show_lines=False,
+                padding=(0, 1),
+            )
+            table.add_column("#",        justify="right", min_width=3,  style=DIM)
+            table.add_column("Name",     min_width=18)
+            table.add_column("ICP file", min_width=16, style=DIM)
+            table.add_column("Created",  min_width=16)
+            table.add_column("Sims",     justify="right", min_width=4)
+            table.add_column("Reports",  justify="right", min_width=7)
+            table.add_column("Size",     justify="right", min_width=8)
+
+            from rich.text import Text as RichText
+            for i, run in enumerate(runs, start=1):
+                icp = run.get("icp_file", "—")
+                if len(icp) > 20:
+                    icp = "…" + icp[-18:]
+
+                created = run.get("created_at", "")
+                if "T" in created:
+                    created = created.replace("T", " ")[:16]
+
+                name_text = RichText(run.get("name", "—"))
+                name_text.stylize(f"bold {ORANGE}")
+
+                table.add_row(
+                    str(i),
+                    name_text,
+                    icp,
+                    created,
+                    str(run.get("total_simulations", 0)),
+                    str(run.get("total_reports", 0)),
+                    f"{run.get('disk_mb', 0):.1f} MB",
+                )
+
+            self.console.print()
+            self.console.print(table)
+            self.console.print()
+            self._print_hint(f"{len(runs)} run(s). Use /runs rm <n> to delete one.")
+
+    def _render_graph_inline(self, nodes: list, edges: list, graph_id: str) -> None:
+        """Render graph nodes + edges as Rich panels inside the TUI."""
+        # Stats header
+        stats = Table.grid(padding=(0, 3))
+        stats.add_column(style=f"bold {ORANGE}", min_width=6)
+        stats.add_column(style=DIM)
+        stats.add_row(str(len(nodes)), "nodes")
+        stats.add_row(str(len(edges)), "edges")
+        self.console.print()
+        self.console.print(Panel(
+            stats,
+            title=f"[bold {ORANGE}]ICP Knowledge Graph[/bold {ORANGE}]  "
+                  f"[{DIM}]{graph_id[:16]}…[/{DIM}]",
+            border_style=ORANGE, padding=(0, 2),
+        ))
+
+        # Nodes
+        node_table = Table(show_header=True, header_style=f"bold {ORANGE}",
+                           border_style=DIM, show_lines=True, padding=(0, 1))
+        node_table.add_column("Type",    min_width=20, style=f"bold {ORANGE}")
+        node_table.add_column("Name",    min_width=20)
+        node_table.add_column("Summary", min_width=30, style=DIM)
+        for n in nodes:
+            labels = n.get("labels") or []
+            entity_type = labels[0] if labels else "—"
+            name = n.get("name") or "—"
+            summary = (n.get("summary") or "").strip()
+            if summary.startswith(name):
+                summary = summary[len(name):].strip(" -()")
+            node_table.add_row(entity_type, name, summary[:70] if summary else "—")
+        self.console.print(Panel(node_table,
+                                 title=f"[{DIM}]Entities ({len(nodes)})[/{DIM}]",
+                                 border_style=ORANGE))
+
+        # Edges
+        if edges:
+            edge_table = Table(show_header=True, header_style=f"bold {ORANGE}",
+                               border_style=DIM, show_lines=True, padding=(0, 1))
+            edge_table.add_column("Source",       min_width=16)
+            edge_table.add_column("Relationship", min_width=20, style=f"bold {ORANGE}")
+            edge_table.add_column("Target",       min_width=16)
+            edge_table.add_column("Fact",         min_width=36, style=DIM)
+            for e in edges:
+                edge_table.add_row(
+                    e.get("source_node_name") or "—",
+                    e.get("fact_type") or "—",
+                    e.get("target_node_name") or "—",
+                    (e.get("fact") or "")[:80],
+                )
+            self.console.print(Panel(edge_table,
+                                     title=f"[{DIM}]Relationships ({len(edges)})[/{DIM}]",
+                                     border_style=ORANGE))
         self.console.print()
 
     def _cmd_quit(self) -> None:

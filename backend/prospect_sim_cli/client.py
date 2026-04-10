@@ -118,6 +118,20 @@ class ApiClient:
             raise ApiError("timeout", f"Request to {path} timed out after {self.timeout}s")
         return self._handle_response(resp)
 
+    def _delete(self, path: str) -> dict:
+        try:
+            resp = self._session.delete(self._url(path), timeout=self.timeout)
+        except RequestsConnectionError:
+            raise ApiError(
+                "backend_unavailable",
+                f"Cannot connect to backend at {self.base_url}",
+                fix="cd backend && uv run python run.py",
+                docs="prospect-sim config set api-url <url>",
+            )
+        except Timeout:
+            raise ApiError("timeout", f"Request to {path} timed out after {self.timeout}s")
+        return self._handle_response(resp)
+
     def _post(self, path: str, json: Optional[dict] = None, files=None, data=None) -> dict:
         try:
             if files is not None:
@@ -366,3 +380,30 @@ class ApiClient:
         Returns {node_count, edge_count, entity_types, nodes[], edges[]}.
         """
         return self._get(f"/api/graph/data/{graph_id}")
+
+    # ── Runs ─────────────────────────────────────────────────────────────
+
+    def get_run_detail(self, project_id: str) -> dict:
+        """
+        Full inspection data for one run.
+        Returns {project, graph, simulations} with agents, report outline, etc.
+        Raises ApiError if project not found.
+        """
+        return self._get(f"/api/runs/{project_id}/detail")
+
+    def get_runs(self) -> list:
+        """
+        List all past runs.
+        Returns list of run dicts sorted by created_at desc.
+        Each item: {project_id, name, created_at, icp_file, total_simulations,
+                    total_reports, disk_mb, graph_id, simulations}.
+        """
+        return self._get("/api/runs")
+
+    def delete_run(self, project_id: str) -> dict:
+        """
+        Delete every artifact for a run (graph + files).
+        Returns {project_id, deleted_simulations, deleted_reports, graph_deleted}.
+        Raises ApiError if project not found (404) or backend error.
+        """
+        return self._delete(f"/api/runs/{project_id}")

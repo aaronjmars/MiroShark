@@ -10,6 +10,7 @@ Command tree:
   prospect-sim variant      — run simulations on a pre-built project (test)
   prospect-sim results      — fetch and display simulation results (show)
   prospect-sim config       — CLI configuration (show / set / reset)
+  prospect-sim runs         — list and delete past runs
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from .commands.project import app as project_app
 from .commands.variant import app as variant_app
 from .commands.results import app as results_app
 from .commands.config_cmd import app as config_app
+from .commands.runs import app as runs_app
 from . import __version__
 
 # Root application
@@ -65,6 +67,7 @@ app.add_typer(project_app, name="project")
 app.add_typer(variant_app, name="variant")
 app.add_typer(results_app, name="results")
 app.add_typer(config_app, name="config")
+app.add_typer(runs_app, name="runs")
 
 
 def main() -> None:
