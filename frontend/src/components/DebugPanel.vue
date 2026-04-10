@@ -39,7 +39,6 @@
           <option value="">All platforms</option>
           <option value="twitter">Twitter</option>
           <option value="reddit">Reddit</option>
-          <option value="polymarket">Polymarket</option>
         </select>
         <input
           v-model="filterText"

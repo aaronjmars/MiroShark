@@ -75,7 +75,6 @@
       <div class="legend-items">
         <div class="legend-item"><span class="legend-dot" style="background: #0A0A0A"></span><span>X</span></div>
         <div class="legend-item"><span class="legend-dot" style="background: #FF6B1A"></span><span>Reddit</span></div>
-        <div class="legend-item"><span class="legend-dot" style="background: #43C165"></span><span>Polymarket</span></div>
       </div>
       <div class="legend-hint">Node size = activity · Edge thickness = interactions</div>
     </div>
@@ -110,7 +109,7 @@ let actionLayer = null    // D3 <g> for floating action indicators
 let nodePositions = {}    // agent_name -> { x, y } (updated by simulation tick)
 let graphBuilt = false
 
-const platformColors = { twitter: '#1D9BF0', reddit: '#FF6B1A', polymarket: '#43C165' }
+const platformColors = { twitter: '#1D9BF0', reddit: '#FF6B1A' }
 
 const actionIcons = {
   CREATE_POST: '✎', QUOTE_POST: '❝', REPOST: '↻', LIKE_POST: '♥',
@@ -799,13 +798,11 @@ onUnmounted(() => {
 .bar-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; min-width: 60px; color: rgba(10,10,10,0.5); }
 .bar-label.twitter { color: #0A0A0A; }
 .bar-label.reddit { color: #FF6B1A; }
-.bar-label.polymarket { color: #43C165; }
 
 .bar-track { flex: 1; height: 6px; background: rgba(10,10,10,0.06); }
 .bar-fill { height: 100%; transition: width 0.3s; }
 .bar-fill.twitter { background: #0A0A0A; }
 .bar-fill.reddit { background: #FF6B1A; }
-.bar-fill.polymarket { background: #43C165; }
 .bar-count { font-size: 10px; font-weight: 600; color: rgba(10,10,10,0.7); min-width: 20px; text-align: right; }
 
 .interaction-types { padding: 8px 14px 12px; display: flex; flex-wrap: wrap; gap: 4px; border-top: 1px solid rgba(10,10,10,0.06); }

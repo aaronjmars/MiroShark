@@ -1,10 +1,9 @@
 """
 Wonderwall multi-platform parallel simulation preset script
-Runs Twitter, Reddit, and Polymarket simulations concurrently, reading the same configuration file
+Runs Twitter and Reddit simulations concurrently, reading the same configuration file
 
 Features:
-- Multi-platform (Twitter + Reddit + Polymarket) parallel simulation
-- Polymarket prediction market via Wonderwall's SimulationConfig framework
+- Multi-platform (Twitter + Reddit) parallel simulation
 - Cross-platform awareness: agents see their activity on other platforms (--cross-platform)
 - Does not close the environment immediately after simulation; enters command waiting mode
 - Supports receiving Interview commands via IPC
@@ -17,7 +16,6 @@ Usage:
     python run_parallel_simulation.py --config simulation_config.json --no-wait  # Close immediately after completion
     python run_parallel_simulation.py --config simulation_config.json --twitter-only
     python run_parallel_simulation.py --config simulation_config.json --reddit-only
-    python run_parallel_simulation.py --config simulation_config.json --polymarket-only
 
 Log structure:
     sim_xxx/
@@ -183,7 +181,6 @@ try:
     )
     from wonderwall.social_agent.agent import SocialAgent
     from wonderwall.social_platform.config import UserInfo
-    from wonderwall.simulations.polymarket import polymarket_simulation
 except ImportError as e:
     print(f"Error: Missing dependency {e}")
     print("Please install first: pip install -e ../wonderwall camel-ai")
@@ -1054,48 +1051,6 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
     )
 
 
-def _build_social_summary_for_traders(round_memory, current_round: int, bridge) -> str:
-    """Build a concise social media summary for Polymarket traders' observation prompt.
-
-    Extracts the most relevant posts/comments from the previous round
-    so traders see actual social media content, not just sentiment numbers.
-    """
-    parts = []
-
-    # Get previous round's actions from round memory
-    prev_round = current_round - 1
-    if prev_round >= 0 and prev_round in round_memory._rounds:
-        rec = round_memory._rounds[prev_round]
-        for platform in ("twitter", "reddit"):
-            actions = rec.platform_actions.get(platform, [])
-            # Filter to content-producing actions
-            content_actions = [
-                a for a in actions
-                if a.get("action_type") in ("CREATE_POST", "CREATE_COMMENT", "QUOTE_POST")
-                and a.get("action_args", {}).get("content")
-            ]
-            if content_actions:
-                parts.append(f"[{platform.title()} — last round]")
-                for a in content_actions[:4]:  # top 4 posts per platform
-                    agent = a.get("agent_name", "?")
-                    content = a["action_args"]["content"][:150]
-                    parts.append(f'  {agent}: "{content}"')
-
-    # Add bridge sentiment if available
-    if bridge and bridge.latest_sentiment and bridge.latest_sentiment.topic_sentiments:
-        for topic, data in bridge.latest_sentiment.topic_sentiments.items():
-            pos = data.get("positive_pct", 0)
-            neg = data.get("negative_pct", 0)
-            count = data.get("post_count", 0)
-            if count > 0:
-                mood = "bullish" if pos > neg + 10 else "bearish" if neg > pos + 10 else "mixed"
-                parts.append(f"  Sentiment on \"{topic}\": {mood} ({pos:.0f}% pos, {neg:.0f}% neg, {count} posts)")
-
-    if not parts:
-        return ""
-
-    return "\n".join(parts)
-
 
 def get_active_agents_for_round(
     env,
@@ -1361,7 +1316,7 @@ async def run_twitter_simulation(
         # Update beliefs and inject context for next round
         belief_tracker.after_round(db_path, result.env, active_agents, round_num, actual_actions)
 
-        # Publish sentiment to bridge for Polymarket agents to see
+        # Publish sentiment to bridge for other platform agents to see
         if market_media_bridge:
             market_media_bridge.update_sentiment(
                 belief_tracker.belief_states, actual_actions, round_num, "twitter"
@@ -1614,7 +1569,7 @@ async def run_reddit_simulation(
         # Update beliefs and inject context for next round
         belief_tracker.after_round(db_path, result.env, active_agents, round_num, actual_actions)
 
-        # Publish sentiment to bridge for Polymarket agents to see
+        # Publish sentiment to bridge for other platform agents to see
         if market_media_bridge:
             market_media_bridge.update_sentiment(
                 belief_tracker.belief_states, actual_actions, round_num, "reddit"
@@ -1661,360 +1616,6 @@ async def run_reddit_simulation(
     return result
 
 
-# ============================================================
-# Polymarket prediction market simulation
-# Uses Wonderwall's SimulationConfig path (not legacy ActionType)
-# ============================================================
-
-# Polymarket action type map for action log enrichment
-POLYMARKET_ACTION_TYPE_MAP = {
-    'browse_markets': 'BROWSE_MARKETS',
-    'buy_shares': 'BUY_SHARES',
-    'sell_shares': 'SELL_SHARES',
-    'view_portfolio': 'VIEW_PORTFOLIO',
-    'create_market': 'CREATE_MARKET',
-    'comment_on_market': 'COMMENT_ON_MARKET',
-    'do_nothing': 'DO_NOTHING',
-    'sign_up': 'SIGN_UP',
-}
-
-
-def _load_polymarket_profiles(profile_path: str) -> List[Dict[str, Any]]:
-    """Load Polymarket agent profiles from JSON."""
-    with open(profile_path, 'r', encoding='utf-8') as f:
-        return json.load(f)
-
-
-def _build_polymarket_agent_graph(
-    profiles: List[Dict[str, Any]],
-    model,
-) -> AgentGraph:
-    """
-    Build an AgentGraph for Polymarket from profile dicts.
-
-    Each profile has: user_id, name, description, risk_tolerance, user_profile.
-    Agents are created with simulation=polymarket_simulation so they use
-    PolymarketAction / PolymarketEnvironment / PolymarketPromptBuilder.
-    """
-    agent_graph = AgentGraph()
-
-    for profile in profiles:
-        agent_id = profile["user_id"]
-        # Use description as readable name if "name" looks like a username
-        display_name = profile.get("display_name") or profile.get("description", "") or profile["name"]
-        user_info = UserInfo(
-            name=display_name,
-            description=profile.get("description", ""),
-            profile={
-                "other_info": {
-                    "user_profile": profile.get("user_profile", ""),
-                    "risk_tolerance": profile.get("risk_tolerance", "moderate"),
-                }
-            },
-        )
-        agent = SocialAgent(
-            agent_id=agent_id,
-            user_info=user_info,
-            model=model,
-            agent_graph=agent_graph,
-            simulation=polymarket_simulation,
-        )
-        agent_graph.add_agent(agent)
-
-    return agent_graph
-
-
-def _fetch_polymarket_actions_from_db(
-    db_path: str,
-    last_rowid: int,
-    agent_names: Dict[int, str],
-) -> Tuple[List[Dict[str, Any]], int]:
-    """
-    Fetch new Polymarket actions from the trace table.
-
-    Same pattern as fetch_new_actions_from_db but adapted for
-    Polymarket's action names and richer trade data.
-    """
-    actions = []
-    new_last_rowid = last_rowid
-
-    if not os.path.exists(db_path):
-        return actions, new_last_rowid
-
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT rowid, user_id, action, info
-            FROM trace
-            WHERE rowid > ?
-            ORDER BY rowid ASC
-        """, (last_rowid,))
-
-        for rowid, user_id, action, info_json in cursor.fetchall():
-            new_last_rowid = rowid
-
-            if action in ('sign_up',):
-                continue
-
-            try:
-                action_args = json.loads(info_json) if info_json else {}
-            except json.JSONDecodeError:
-                action_args = {}
-
-            action_type = POLYMARKET_ACTION_TYPE_MAP.get(action, action.upper())
-
-            actions.append({
-                'agent_id': user_id,
-                'agent_name': agent_names.get(user_id, f'Agent_{user_id}'),
-                'action_type': action_type,
-                'action_args': action_args,
-            })
-
-        conn.close()
-    except Exception as e:
-        print(f"Failed to read Polymarket actions from database: {e}")
-
-    return actions, new_last_rowid
-
-
-async def run_polymarket_simulation(
-    config: Dict[str, Any],
-    simulation_dir: str,
-    action_logger: Optional[PlatformActionLogger] = None,
-    main_logger: Optional[SimulationLogManager] = None,
-    max_rounds: Optional[int] = None,
-    start_round: int = 0,
-    cross_platform_log: Optional[CrossPlatformLog] = None,
-    market_media_bridge: Optional[MarketMediaBridge] = None,
-) -> PlatformSimulation:
-    """Run Polymarket prediction market simulation.
-
-    Uses Wonderwall's SimulationConfig-based path. Agents are LLM-driven
-    traders that browse markets, buy/sell shares, and create new markets.
-
-    Args:
-        config: Simulation configuration
-        simulation_dir: Simulation directory
-        action_logger: Action logger (writes to polymarket/actions.jsonl)
-        main_logger: Main log manager
-        max_rounds: Maximum simulation rounds
-        start_round: Resume from this round
-        cross_platform_log: Shared log for cross-platform agent awareness
-
-    Returns:
-        PlatformSimulation with env and agent_graph
-    """
-    result = PlatformSimulation()
-
-    def log_info(msg):
-        if main_logger:
-            main_logger.info(f"[Polymarket] {msg}")
-        print(f"[Polymarket] {msg}")
-
-    log_info("Initializing...")
-
-    model = create_model(config, use_boost=False)
-
-    profile_path = os.path.join(simulation_dir, "polymarket_profiles.json")
-    if not os.path.exists(profile_path):
-        log_info(f"Error: Profile file not found: {profile_path}")
-        return result
-
-    profiles = _load_polymarket_profiles(profile_path)
-    result.agent_graph = _build_polymarket_agent_graph(profiles, model)
-
-    # Agent name mapping
-    agent_names = get_agent_names_from_config(config)
-    for agent_id, agent in result.agent_graph.get_agents():
-        if agent_id not in agent_names:
-            agent_names[agent_id] = getattr(
-                agent, 'name', f'Agent_{agent_id}'
-            )
-
-    is_resume = start_round > 0
-
-    db_path = os.path.join(simulation_dir, "polymarket_simulation.db")
-    if not is_resume and os.path.exists(db_path):
-        os.remove(db_path)
-
-    result.env = wonderwall.make(
-        agent_graph=result.agent_graph,
-        simulation=polymarket_simulation,
-        database_path=db_path,
-        semaphore=60,
-    )
-
-    await result.env.reset()
-    log_info(
-        "Environment started"
-        + (f" (resuming from round {start_round})" if is_resume else "")
-    )
-
-    if action_logger:
-        action_logger.log_simulation_start(config)
-
-    # Seed initial markets if configured (round 0)
-    if not is_resume:
-        event_config = config.get("event_config", {})
-        initial_markets = event_config.get("initial_markets", [])
-
-        if action_logger:
-            action_logger.log_round_start(0, 0)
-
-        initial_action_count = 0
-        if initial_markets:
-            # Use agent 0 to create seed markets
-            agent_0 = result.env.agent_graph.get_agent(0)
-            seed_actions = []
-            for market in initial_markets:
-                seed_actions.append(ManualAction(
-                    action_type="create_market",
-                    action_args={
-                        "question": market.get("question", ""),
-                        "outcome_a": market.get("outcome_a", "YES"),
-                        "outcome_b": market.get("outcome_b", "NO"),
-                    },
-                ))
-                initial_action_count += 1
-
-            await result.env.step({agent_0: seed_actions})
-            log_info(f"Seeded {len(seed_actions)} initial markets")
-
-            # Log seed actions
-            if action_logger:
-                for market in initial_markets:
-                    action_logger.log_action(
-                        round_num=0,
-                        agent_id=0,
-                        agent_name=agent_names.get(0, "Agent_0"),
-                        action_type="CREATE_MARKET",
-                        action_args={"question": market.get("question", "")},
-                    )
-
-        if action_logger:
-            action_logger.log_round_end(0, initial_action_count)
-
-    # Main simulation loop
-    time_config = config.get("time_config", {})
-    total_hours = time_config.get("total_simulation_hours", 72)
-    minutes_per_round = time_config.get("minutes_per_round", 30)
-    total_rounds = (total_hours * 60) // minutes_per_round
-
-    if max_rounds is not None and max_rounds > 0:
-        original_rounds = total_rounds
-        total_rounds = min(total_rounds, max_rounds)
-        if total_rounds < original_rounds:
-            log_info(f"Rounds truncated: {original_rounds} -> {total_rounds}")
-
-    # Initialize belief tracking for Polymarket
-    belief_tracker = BeliefTracker(config, simulation_dir, "polymarket")
-    log_info(f"Belief tracking: {len(belief_tracker.topics)} topics")
-
-    start_time = datetime.now()
-    total_actions = 0
-    last_rowid = 0
-
-    if start_round > 0:
-        log_info(f"Resuming from round {start_round}")
-
-    for round_num in range(start_round, total_rounds):
-        if _shutdown_event and _shutdown_event.is_set():
-            if main_logger:
-                main_logger.info(
-                    f"Shutdown signal, stopping at round {round_num + 1}"
-                )
-            break
-
-        simulated_minutes = round_num * minutes_per_round
-        simulated_hour = (simulated_minutes // 60) % 24
-        simulated_day = simulated_minutes // (60 * 24) + 1
-
-        active_agents = get_active_agents_for_round(
-            result.env, config, simulated_hour, round_num
-        )
-
-        if action_logger:
-            action_logger.log_round_start(round_num + 1, simulated_hour)
-
-        if not active_agents:
-            if action_logger:
-                action_logger.log_round_end(round_num + 1, 0)
-            continue
-
-        # Inject cross-platform digest
-        if cross_platform_log:
-            for agent_id, agent in active_agents:
-                digest = cross_platform_log.build_digest(
-                    agent_id, exclude_platform="polymarket"
-                )
-                if digest:
-                    inject_cross_platform_context(agent, digest)
-
-        # Inject social media sentiment so traders see what the crowd is saying
-        if market_media_bridge:
-            sentiment_prompt = market_media_bridge.get_sentiment_prompt()
-            if sentiment_prompt:
-                for _, agent in active_agents:
-                    inject_sentiment_context(agent, sentiment_prompt)
-
-        actions = {agent: LLMAction() for _, agent in active_agents}
-        await result.env.step(actions)
-
-        # Fetch actions from trace table
-        actual_actions, last_rowid = _fetch_polymarket_actions_from_db(
-            db_path, last_rowid, agent_names
-        )
-
-        # Publish updated market prices to bridge for social media agents to see
-        if market_media_bridge:
-            market_media_bridge.update_prices(db_path, round_num)
-
-        # Update beliefs and inject context for next round
-        belief_tracker.after_round(db_path, result.env, active_agents, round_num, actual_actions)
-
-        # Record to cross-platform log
-        if cross_platform_log and actual_actions:
-            cross_platform_log.record("polymarket", actual_actions)
-
-        round_action_count = 0
-        for action_data in actual_actions:
-            if action_logger:
-                action_logger.log_action(
-                    round_num=round_num + 1,
-                    agent_id=action_data['agent_id'],
-                    agent_name=action_data['agent_name'],
-                    action_type=action_data['action_type'],
-                    action_args=action_data['action_args'],
-                )
-                total_actions += 1
-                round_action_count += 1
-
-        if action_logger:
-            action_logger.log_round_end(round_num + 1, round_action_count)
-
-        if (round_num + 1) % 20 == 0:
-            progress = (round_num + 1) / total_rounds * 100
-            log_info(
-                f"Day {simulated_day}, {simulated_hour:02d}:00 - "
-                f"Round {round_num + 1}/{total_rounds} ({progress:.1f}%)"
-            )
-
-    if action_logger:
-        action_logger.log_simulation_end(total_rounds, total_actions)
-
-    result.total_actions = total_actions
-    elapsed = (datetime.now() - start_time).total_seconds()
-    log_info(f"Simulation loop completed! Elapsed: {elapsed:.1f}s, total actions: {total_actions}")
-
-    # Save belief trajectory
-    traj_path = belief_tracker.save_trajectory()
-    log_info(f"Belief trajectory saved: {traj_path}")
-    log_info(belief_tracker.get_summary())
-
-    return result
-
 
 # ============================================================
 # Synchronized multi-platform simulation
@@ -2028,18 +1629,16 @@ async def run_synchronized_simulation(
     simulation_dir: str,
     twitter_logger: Optional[PlatformActionLogger] = None,
     reddit_logger: Optional[PlatformActionLogger] = None,
-    polymarket_logger: Optional[PlatformActionLogger] = None,
     main_logger: Optional[SimulationLogManager] = None,
     max_rounds: Optional[int] = None,
     start_round: int = 0,
     cross_platform_log: Optional[CrossPlatformLog] = None,
     has_twitter: bool = False,
     has_reddit: bool = False,
-    has_polymarket: bool = False,
-) -> Tuple[Optional[PlatformSimulation], Optional[PlatformSimulation], Optional[PlatformSimulation]]:
+) -> Tuple[Optional[PlatformSimulation], Optional[PlatformSimulation]]:
     """Run all platforms in lock-step: one round at a time across all platforms.
 
-    Returns (twitter_result, reddit_result, polymarket_result).
+    Returns (twitter_result, reddit_result).
     """
     def log_info(msg):
         if main_logger:
@@ -2070,11 +1669,9 @@ async def run_synchronized_simulation(
     # ── Setup phase: initialize all platform environments in parallel ──
     twitter_result = None
     reddit_result = None
-    polymarket_result = None
 
     twitter_db = os.path.join(simulation_dir, "twitter_simulation.db")
     reddit_db = os.path.join(simulation_dir, "reddit_simulation.db")
-    polymarket_db = os.path.join(simulation_dir, "polymarket_simulation.db")
 
     if has_twitter:
         twitter_result = PlatformSimulation()
@@ -2114,37 +1711,15 @@ async def run_synchronized_simulation(
         await reddit_result.env.reset()
         log_info("[Reddit] Environment ready")
 
-    if has_polymarket:
-        polymarket_result = PlatformSimulation()
-        profile_path = os.path.join(simulation_dir, "polymarket_profiles.json")
-        profiles = _load_polymarket_profiles(profile_path)
-        polymarket_result.agent_graph = _build_polymarket_agent_graph(profiles, model)
-        for agent_id, agent in polymarket_result.agent_graph.get_agents():
-            if agent_id not in agent_names:
-                agent_names[agent_id] = getattr(agent, 'name', f'Agent_{agent_id}')
-        if start_round == 0 and os.path.exists(polymarket_db):
-            os.remove(polymarket_db)
-        polymarket_result.env = wonderwall.make(
-            agent_graph=polymarket_result.agent_graph,
-            simulation=polymarket_simulation,
-            database_path=polymarket_db,
-            semaphore=60,
-        )
-        await polymarket_result.env.reset()
-        log_info("[Polymarket] Environment ready")
-
     # ── Initialize belief trackers ──
     twitter_belief = BeliefTracker(config, simulation_dir, "twitter") if has_twitter else None
     reddit_belief = BeliefTracker(config, simulation_dir, "reddit") if has_reddit else None
-    polymarket_belief = BeliefTracker(config, simulation_dir, "polymarket") if has_polymarket else None
 
     # ── Action loggers ──
     if twitter_logger:
         twitter_logger.log_simulation_start(config)
     if reddit_logger:
         reddit_logger.log_simulation_start(config)
-    if polymarket_logger:
-        polymarket_logger.log_simulation_start(config)
 
     # ── Execute initial events (round 0) ──
     event_config = config.get("event_config", {})
@@ -2171,29 +1746,6 @@ async def run_synchronized_simulation(
                 await platform_result.env.step(initial_actions)
                 log_info(f"[{platform_name.capitalize()}] Published {len(initial_actions)} initial posts")
 
-    # ── Seed Polymarket initial markets (round 0) ──
-    initial_markets = event_config.get("initial_markets", [])
-    if start_round == 0 and initial_markets and polymarket_result:
-        agent_0 = polymarket_result.env.agent_graph.get_agent(0)
-        seed_actions = []
-        for market in initial_markets:
-            prob = market.get("initial_probability", 0.5)
-            seed_actions.append(ManualAction(
-                action_type="create_market",
-                action_args={
-                    "question": market.get("question", ""),
-                    "outcome_a": market.get("outcome_a", "YES"),
-                    "outcome_b": market.get("outcome_b", "NO"),
-                    "initial_probability": prob,
-                },
-            ))
-        if seed_actions:
-            await polymarket_result.env.step({agent_0: seed_actions})
-            for m in initial_markets:
-                prob = m.get("initial_probability", 0.5)
-                log_info(f"  Market: \"{m['question'][:60]}...\" (initial: {prob:.0%})")
-            log_info(f"[Polymarket] Seeded {len(seed_actions)} markets")
-
     # ── Synchronized round loop ──
     time_config = config.get("time_config", {})
     total_hours = time_config.get("total_simulation_hours", 72)
@@ -2205,7 +1757,6 @@ async def run_synchronized_simulation(
 
     twitter_last_rowid = 0
     reddit_last_rowid = 0
-    polymarket_last_rowid = 0
 
     start_time = datetime.now()
     log_info(f"Starting synchronized simulation: {total_rounds} rounds")
@@ -2274,40 +1825,6 @@ async def run_synchronized_simulation(
 
                 platform_tasks.append(("reddit", _step_reddit()))
 
-        if polymarket_result:
-            active = get_active_agents_for_round(polymarket_result.env, config, simulated_hour, round_num)
-            if active:
-                if memory_ctx:
-                    for _, agent in active:
-                        inject_round_memory(agent, memory_ctx)
-                if sentiment_prompt:
-                    for _, agent in active:
-                        inject_sentiment_context(agent, sentiment_prompt)
-                if market_prompt:
-                    for _, agent in active:
-                        inject_market_context(agent, market_prompt)
-                if cross_platform_log:
-                    for agent_id, agent in active:
-                        digest = cross_platform_log.build_digest(agent_id, exclude_platform="polymarket")
-                        if digest:
-                            inject_cross_platform_context(agent, digest)
-
-                # Inject social media summary directly into the observation prompt
-                # so traders see it alongside portfolio/market data (not buried in system msg)
-                social_summary = _build_social_summary_for_traders(
-                    round_memory, round_num, bridge
-                )
-                for _, agent in active:
-                    if hasattr(agent, 'env') and hasattr(agent.env, 'extra_observation_context'):
-                        agent.env.extra_observation_context = social_summary
-
-                async def _step_polymarket(active_agents=active):
-                    actions = {agent: LLMAction() for _, agent in active_agents}
-                    await polymarket_result.env.step(actions)
-                    return active_agents
-
-                platform_tasks.append(("polymarket", _step_polymarket()))
-
         # Run ALL platforms in parallel (they all see previous-round context)
         platform_results = {}
         if platform_tasks:
@@ -2351,21 +1868,6 @@ async def run_synchronized_simulation(
                 reddit_logger.log_round_end(round_num + 1, len(actual_actions))
             reddit_result.total_actions += len(actual_actions)
 
-        if "polymarket" in platform_results:
-            bridge.update_prices(polymarket_db, round_num)
-            actual_actions, polymarket_last_rowid = _fetch_polymarket_actions_from_db(polymarket_db, polymarket_last_rowid, agent_names)
-            if polymarket_belief:
-                polymarket_belief.after_round(polymarket_db, polymarket_result.env, platform_results["polymarket"], round_num, actual_actions)
-            if cross_platform_log and actual_actions:
-                cross_platform_log.record("polymarket", actual_actions)
-            round_memory.record("polymarket", round_num, actual_actions)
-            if polymarket_logger:
-                polymarket_logger.log_round_start(round_num + 1, simulated_hour)
-                for a in actual_actions:
-                    polymarket_logger.log_action(round_num=round_num+1, agent_id=a['agent_id'], agent_name=a['agent_name'], action_type=a['action_type'], action_args=a['action_args'])
-                polymarket_logger.log_round_end(round_num + 1, len(actual_actions))
-            polymarket_result.total_actions += len(actual_actions)
-
         # ── Compact previous round's memory (N-2 becomes a summary) ──
         await round_memory.compact_previous_round(round_num)
 
@@ -2378,8 +1880,6 @@ async def run_synchronized_simulation(
                 parts.append(f"X:{twitter_result.total_actions}")
             if reddit_result:
                 parts.append(f"R:{reddit_result.total_actions}")
-            if polymarket_result:
-                parts.append(f"PM:{polymarket_result.total_actions}")
             log_info(
                 f"Round {round_num+1}/{total_rounds} ({progress:.0f}%) "
                 f"Day {simulated_day} {simulated_hour:02d}:00 — "
@@ -2391,18 +1891,18 @@ async def run_synchronized_simulation(
     log_info(f"Simulation complete! {elapsed:.0f}s total")
 
     # Save trajectories
-    for tracker, name in [(twitter_belief, "Twitter"), (reddit_belief, "Reddit"), (polymarket_belief, "Polymarket")]:
+    for tracker, name in [(twitter_belief, "Twitter"), (reddit_belief, "Reddit")]:
         if tracker:
             traj_path = tracker.save_trajectory()
             log_info(f"[{name}] Trajectory saved: {traj_path}")
             log_info(f"[{name}] {tracker.get_summary()}")
 
     # End loggers
-    for logger, name in [(twitter_logger, "Twitter"), (reddit_logger, "Reddit"), (polymarket_logger, "Polymarket")]:
+    for logger, name in [(twitter_logger, "Twitter"), (reddit_logger, "Reddit")]:
         if logger:
             logger.log_simulation_end(total_rounds, 0)
 
-    return twitter_result, reddit_result, polymarket_result
+    return twitter_result, reddit_result
 
 
 async def main():
@@ -2422,11 +1922,6 @@ async def main():
         '--reddit-only',
         action='store_true',
         help='Run Reddit simulation only'
-    )
-    parser.add_argument(
-        '--polymarket-only',
-        action='store_true',
-        help='Run Polymarket prediction market simulation only'
     )
     parser.add_argument(
         '--max-rounds',
@@ -2480,7 +1975,6 @@ async def main():
     log_manager = SimulationLogManager(simulation_dir)
     twitter_logger = log_manager.get_twitter_logger()
     reddit_logger = log_manager.get_reddit_logger()
-    polymarket_logger = log_manager.get_polymarket_logger()
 
     log_manager.info("=" * 60)
     log_manager.info("Wonderwall Multi-Platform Parallel Simulation")
@@ -2508,7 +2002,6 @@ async def main():
     log_manager.info(f"  - Main log: simulation.log")
     log_manager.info(f"  - Twitter actions: twitter/actions.jsonl")
     log_manager.info(f"  - Reddit actions: reddit/actions.jsonl")
-    log_manager.info(f"  - Polymarket actions: polymarket/actions.jsonl")
     log_manager.info("=" * 60)
 
     start_time = datetime.now()
@@ -2516,7 +2009,6 @@ async def main():
     # Store simulation results for all platforms
     twitter_result: Optional[PlatformSimulation] = None
     reddit_result: Optional[PlatformSimulation] = None
-    polymarket_result: Optional[PlatformSimulation] = None
 
     if args.env_only:
         # --env-only: skip simulation, just create environments for interviews
@@ -2566,40 +2058,28 @@ async def main():
         # Check which platforms have profile files
         has_twitter = os.path.exists(os.path.join(simulation_dir, "twitter_profiles.csv"))
         has_reddit = os.path.exists(os.path.join(simulation_dir, "reddit_profiles.json"))
-        has_polymarket = os.path.exists(os.path.join(simulation_dir, "polymarket_profiles.json"))
-
-        # Create market-media bridge when both social media AND polymarket are running
-        has_social = has_twitter or has_reddit
-        bridge = MarketMediaBridge() if (has_social and has_polymarket) else None
-        if bridge:
-            log_manager.info("Market-Media Bridge ENABLED: social media agents see market prices, traders see social sentiment")
 
         if args.twitter_only:
             twitter_result = await run_twitter_simulation(config, simulation_dir, twitter_logger, log_manager, args.max_rounds, args.start_round, cross_platform_log=xp_log)
         elif args.reddit_only:
             reddit_result = await run_reddit_simulation(config, simulation_dir, reddit_logger, log_manager, args.max_rounds, args.start_round, cross_platform_log=xp_log)
-        elif args.polymarket_only:
-            polymarket_result = await run_polymarket_simulation(config, simulation_dir, polymarket_logger, log_manager, args.max_rounds, args.start_round, cross_platform_log=xp_log)
         else:
             # Multiple platforms: use synchronized mode so they step together
-            # This ensures the Market-Media Bridge data is never stale
-            platform_count = sum([has_twitter, has_reddit, has_polymarket])
-            platform_names = [p for p, h in [("Twitter", has_twitter), ("Reddit", has_reddit), ("Polymarket", has_polymarket)] if h]
+            platform_count = sum([has_twitter, has_reddit])
+            platform_names = [p for p, h in [("Twitter", has_twitter), ("Reddit", has_reddit)] if h]
             log_manager.info(f"Launching {platform_count} platforms in SYNCHRONIZED mode: {', '.join(platform_names)}")
 
-            twitter_result, reddit_result, polymarket_result = await run_synchronized_simulation(
+            twitter_result, reddit_result = await run_synchronized_simulation(
                 config=config,
                 simulation_dir=simulation_dir,
                 twitter_logger=twitter_logger,
                 reddit_logger=reddit_logger,
-                polymarket_logger=polymarket_logger,
                 main_logger=log_manager,
                 max_rounds=args.max_rounds,
                 start_round=args.start_round,
                 cross_platform_log=xp_log,
                 has_twitter=has_twitter,
                 has_reddit=has_reddit,
-                has_polymarket=has_polymarket,
             )
 
     total_elapsed = (datetime.now() - start_time).total_seconds()

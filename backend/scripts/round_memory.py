@@ -1,9 +1,9 @@
 """
 Round Memory — sliding-window context from all platforms for every agent.
 
-After each round, raw actions from all 3 platforms (Twitter, Reddit, Polymarket)
-are recorded. An LLM compacts old rounds into short summaries. The resulting
-context follows a sliding window:
+After each round, raw actions from Twitter and Reddit are recorded. An LLM
+compacts old rounds into short summaries. The resulting context follows a
+sliding window:
 
     rounds 0 … N-3  →  compacted (one paragraph each, batched into a single block)
     round  N-2       →  compacted
@@ -23,12 +23,6 @@ Usage in the simulation loop:
         # After each platform steps:
         memory.record("twitter", round_num, actual_actions)
         memory.record("reddit",  round_num, actual_actions)
-
-        # Before Polymarket agents act, inject what Twitter+Reddit did:
-        for agent_id, agent in active_polymarket_agents:
-            inject_round_memory(agent, memory.build_context(round_num))
-
-        memory.record("polymarket", round_num, actual_actions)
 
         # End of round — compact the PREVIOUS round (N-1) if not yet compacted
         await memory.compact_previous_round(round_num)
@@ -59,17 +53,11 @@ _ACTION_LABELS = {
     "QUOTE_POST": "quote-posted",
     "FOLLOW": "followed",
     "MUTE": "muted",
-    # Polymarket
-    "buy_shares": "bought shares",
-    "sell_shares": "sold shares",
-    "create_market": "created a market",
-    "comment_on_market": "commented on a market",
 }
 
 _SKIP_ACTIONS = {
     "DO_NOTHING", "REFRESH", "TREND", "SEARCH_POSTS", "SEARCH_USER",
     "do_nothing", "refresh", "trend", "search_posts", "search_user",
-    "browse_markets", "view_portfolio",
 }
 
 _MAX_CONTENT_PREVIEW = 180
@@ -96,14 +84,6 @@ def _format_action(action: Dict[str, Any]) -> Optional[str]:
         if len(content) > _MAX_CONTENT_PREVIEW:
             content = content[:_MAX_CONTENT_PREVIEW] + "…"
         return f'{agent_name} {label}: "{content}"'
-
-    # Polymarket trades
-    if "market_id" in args:
-        outcome = args.get("outcome", "")
-        amount = args.get("amount_usd") or args.get("num_shares", "")
-        if amount:
-            return f"{agent_name} {label} — market #{args['market_id']}, {outcome} (${amount})"
-        return f"{agent_name} {label} — market #{args['market_id']}"
 
     # Targeting another user
     target = (
@@ -149,7 +129,7 @@ class RoundRecord:
         """Full-detail rendering of all actions this round."""
         header = f"Day {self.simulated_day}, {self.simulated_hour:02d}:00 (round {self.round_num + 1})"
         parts = [header]
-        for platform in ("twitter", "reddit", "polymarket"):
+        for platform in ("twitter", "reddit"):
             actions = self.platform_actions.get(platform, [])
             if actions:
                 parts.append(_format_actions_full(platform, actions))
@@ -268,7 +248,7 @@ class RoundMemory:
                     f"[Current round — Day {rec.simulated_day}, "
                     f"{rec.simulated_hour:02d}:00 (round {current_round + 1})]"
                 ]
-                for platform in ("twitter", "reddit", "polymarket"):
+                for platform in ("twitter", "reddit"):
                     actions = rec.platform_actions.get(platform, [])
                     if actions:
                         parts.append(_format_actions_full(platform, actions))
@@ -281,7 +261,7 @@ class RoundMemory:
         header = "# SIMULATION MEMORY — WHAT HAS HAPPENED"
         footer = (
             "Use this history to inform your decisions. "
-            "React to trends, arguments, and market movements you observe."
+            "React to trends and arguments you observe."
         )
         return header + "\n\n" + "\n\n".join(sections) + "\n\n" + footer
 

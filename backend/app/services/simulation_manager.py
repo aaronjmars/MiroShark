@@ -49,7 +49,6 @@ class SimulationState:
     # Platform enable status
     enable_twitter: bool = True
     enable_reddit: bool = True
-    enable_polymarket: bool = False
 
     # Status
     status: SimulationStatus = SimulationStatus.CREATED
@@ -83,7 +82,6 @@ class SimulationState:
             "graph_id": self.graph_id,
             "enable_twitter": self.enable_twitter,
             "enable_reddit": self.enable_reddit,
-            "enable_polymarket": self.enable_polymarket,
             "status": self.status.value,
             "entities_count": self.entities_count,
             "profiles_count": self.profiles_count,
@@ -175,7 +173,6 @@ class SimulationManager:
             graph_id=data.get("graph_id", ""),
             enable_twitter=data.get("enable_twitter", True),
             enable_reddit=data.get("enable_reddit", True),
-            enable_polymarket=data.get("enable_polymarket", False),
             status=SimulationStatus(data.get("status", "created")),
             entities_count=data.get("entities_count", 0),
             profiles_count=data.get("profiles_count", 0),
@@ -199,7 +196,6 @@ class SimulationManager:
         graph_id: str,
         enable_twitter: bool = True,
         enable_reddit: bool = True,
-        enable_polymarket: bool = False,
     ) -> SimulationState:
         """
         Create a new simulation
@@ -209,21 +205,19 @@ class SimulationManager:
             graph_id: Graph ID
             enable_twitter: Whether to enable Twitter simulation
             enable_reddit: Whether to enable Reddit simulation
-            enable_polymarket: Whether to enable Polymarket simulation
 
         Returns:
             SimulationState
         """
         import uuid
         simulation_id = f"sim_{uuid.uuid4().hex[:12]}"
-        
+
         state = SimulationState(
             simulation_id=simulation_id,
             project_id=project_id,
             graph_id=graph_id,
             enable_twitter=enable_twitter,
             enable_reddit=enable_reddit,
-            enable_polymarket=enable_polymarket,
             status=SimulationStatus.CREATED,
         )
         
@@ -385,13 +379,6 @@ class SimulationManager:
                     platform="twitter"
                 )
 
-            if state.enable_polymarket:
-                generator.save_profiles(
-                    profiles=profiles,
-                    file_path=os.path.join(sim_dir, "polymarket_profiles.json"),
-                    platform="polymarket"
-                )
-            
             if progress_callback:
                 progress_callback(
                     "generating_profiles", 100,

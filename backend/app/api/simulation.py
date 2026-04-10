@@ -206,7 +206,6 @@ def create_simulation():
             "graph_id": "miroshark_xxxx",    // Optional, fetched from project if not provided
             "enable_twitter": true,          // Optional, default true
             "enable_reddit": true,           // Optional, default true
-            "enable_polymarket": false       // Optional, default false
         }
 
     Returns:
@@ -253,7 +252,6 @@ def create_simulation():
             graph_id=graph_id,
             enable_twitter=data.get('enable_twitter', True),
             enable_reddit=data.get('enable_reddit', True),
-            enable_polymarket=data.get('enable_polymarket', False),
         )
         
         return jsonify({
@@ -1699,10 +1697,10 @@ def start_simulation():
                     "error": "max_rounds must be a valid integer"
                 }), 400
 
-        if platform not in ['twitter', 'reddit', 'polymarket', 'parallel']:
+        if platform not in ['twitter', 'reddit', 'parallel']:
             return jsonify({
                 "success": False,
-                "error": f"Invalid platform type: {platform}, options: twitter/reddit/polymarket/parallel"
+                "error": f"Invalid platform type: {platform}, options: twitter/reddit/parallel"
             }), 400
 
         enable_cross_platform = data.get('enable_cross_platform', True)
@@ -2182,7 +2180,7 @@ def _compute_influence_ranked(simulation_id, top_n=None):
     """
     Compute agent influence scores from simulation action JSONL logs.
 
-    Reads twitter/actions.jsonl, reddit/actions.jsonl, and polymarket/actions.jsonl,
+    Reads twitter/actions.jsonl and reddit/actions.jsonl,
     then ranks agents by a composite influence score:
 
         score = engagement_received * 3 + follows_received * 2
@@ -2213,7 +2211,7 @@ def _compute_influence_ranked(simulation_id, top_n=None):
             }
         return agents[name]
 
-    for platform in ('twitter', 'reddit', 'polymarket'):
+    for platform in ('twitter', 'reddit'):
         actions_path = os.path.join(sim_dir, platform, 'actions.jsonl')
         if not os.path.exists(actions_path):
             continue
@@ -3078,7 +3076,6 @@ def compare_simulations():
     Returns aggregated comparison data from both simulations:
     - Influence leaderboards (top 10 each)
     - Per-round activity timelines
-    - Prediction market final prices (from polymarket SQLite if available)
     - Divergence score (0–1, higher = more divergent outcomes)
 
     Divergence score methodology:
@@ -3114,46 +3111,6 @@ def compare_simulations():
                 for r in timeline
             ]
 
-        def _load_market_prices(sim_id):
-            """
-            Extract per-round YES token prices from the Polymarket SQLite database.
-
-            Reads the AmM reserve table to derive price_yes = reserve_no / (reserve_yes + reserve_no)
-            per round. Returns an empty list if Polymarket was not enabled or the DB does not exist.
-            """
-            sim_dir = os.path.join(Config.WONDERWALL_SIMULATION_DATA_DIR, sim_id)
-            db_path = os.path.join(sim_dir, 'polymarket', 'polymarket.db')
-            if not os.path.exists(db_path):
-                return []
-            try:
-                import sqlite3
-                con = sqlite3.connect(db_path)
-                cur = con.cursor()
-                # Try to read round-level price snapshots if they exist
-                tables = {r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-                prices = []
-
-                if 'price_history' in tables:
-                    # Custom table we may have written
-                    rows = cur.execute(
-                        "SELECT round_num, market_id, price_yes FROM price_history ORDER BY round_num, market_id"
-                    ).fetchall()
-                    for rn, mid, py in rows:
-                        prices.append({'round_num': rn, 'market_id': mid, 'price_yes': py})
-                elif 'market' in tables:
-                    # Wonderwall market table: id, reserve_yes, reserve_no
-                    rows = cur.execute(
-                        "SELECT id, reserve_yes, reserve_no FROM market"
-                    ).fetchall()
-                    for mid, ry, rn in rows:
-                        total = (ry or 0) + (rn or 0)
-                        price_yes = (rn / total) if total > 0 else 0.5
-                        prices.append({'market_id': mid, 'price_yes': round(price_yes, 4), 'round_num': None})
-                con.close()
-                return prices
-            except Exception:
-                return []
-
         # Load data for both simulations
         state1 = _load_state(id1)
         state2 = _load_state(id2)
@@ -3167,8 +3124,6 @@ def compare_simulations():
         influence2 = _compute_influence_ranked(id2, top_n=10)
         timeline1 = _load_timeline_summary(id1)
         timeline2 = _load_timeline_summary(id2)
-        markets1 = _load_market_prices(id1)
-        markets2 = _load_market_prices(id2)
 
         # ---- Divergence Score ----
         # Rank-based divergence: normalized mean absolute rank difference for top-10 agents
@@ -3203,7 +3158,6 @@ def compare_simulations():
                     "total_actions": _total_actions(timeline1),
                     "influence": influence1,
                     "timeline": timeline1,
-                    "markets": markets1,
                 },
                 "sim2": {
                     "simulation_id": id2,
@@ -3213,7 +3167,6 @@ def compare_simulations():
                     "total_actions": _total_actions(timeline2),
                     "influence": influence2,
                     "timeline": timeline2,
-                    "markets": markets2,
                 },
             }
         })
@@ -3326,7 +3279,6 @@ def run_variant_test():
                 graph_id=project.graph_id,
                 enable_twitter=False,
                 enable_reddit=False,
-                enable_polymarket=False,
             )
 
             return {

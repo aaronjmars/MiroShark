@@ -95,7 +95,7 @@ class LLMClient:
             default_headers={
                 'HTTP-Referer': 'https://github.com/aaronjmars/MiroShark',
                 'X-Title': 'MiroShark - Universal Swarm Intelligence Engine',
-                'X-Description': 'Multi-agent social media simulation platform. Builds knowledge graphs from documents, generates AI agent personas, and runs parallel simulations across Twitter/Reddit/Polymarket to predict narrative dynamics.',
+                'X-Description': 'Multi-agent social media simulation platform. Builds knowledge graphs from documents, generates AI agent personas, and runs parallel simulations across Twitter/Reddit to predict narrative dynamics.',
                 'X-OpenRouter-Categories': 'multi-agent,simulation,research',
             },
         )

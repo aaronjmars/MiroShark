@@ -1557,7 +1557,6 @@ input:checked + .slider:before {
 
 .action-platform.twitter { background: #0A0A0A; }
 .action-platform.reddit { background: #FF6B1A; }
-.action-platform.polymarket { background: #43C165; }
 
 .action-type {
   font-family: var(--font-mono);

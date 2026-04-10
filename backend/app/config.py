@@ -77,10 +77,6 @@ class Config:
         'LIKE_COMMENT', 'DISLIKE_COMMENT', 'SEARCH_POSTS', 'SEARCH_USER',
         'TREND', 'REFRESH', 'DO_NOTHING', 'FOLLOW', 'MUTE'
     ]
-    WONDERWALL_POLYMARKET_ACTIONS = [
-        'browse_markets', 'buy_shares', 'sell_shares',
-        'view_portfolio', 'create_market', 'comment_on_market', 'do_nothing'
-    ]
     # Email inbox simulation actions (prospect-sim B2B copy variant testing)
     WONDERWALL_INBOX_ACTIONS = [
         'open_email', 'read_email', 'reply', 'forward', 'archive', 'do_nothing'

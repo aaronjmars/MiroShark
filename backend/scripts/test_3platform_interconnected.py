@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
-Test all 3 platforms interconnected: Twitter + Reddit + Polymarket.
+Test 2 platforms interconnected: Twitter + Reddit.
 
 Validates:
-- Single market generated and seeded
-- All 3 platforms run simultaneously
-- Market-media bridge: social sentiment → trader prompts, market prices → social prompts
+- Both platforms run simultaneously
 - Round memory: agents see cross-platform history
 - Cross-platform digest: agents see their own activity on other platforms
 - 8 rounds to allow belief drift + memory compaction
@@ -16,7 +14,6 @@ import os
 import sys
 import time
 import csv
-import sqlite3
 from datetime import datetime
 
 _scripts_dir = os.path.dirname(os.path.abspath(__file__))
@@ -31,10 +28,9 @@ OUT_DIR = os.path.join(_backend_dir, 'pipeline_test_output')
 SIM_DIR = os.path.join(OUT_DIR, 'sim_interconnected')
 
 SIMULATION_REQUIREMENT = (
-    "Simulate public reaction on Twitter, Reddit, and Polymarket to this article "
-    "about Polymarket's rise. Focus on: crypto community reactions, regulatory "
-    "concerns, prediction market enthusiasts vs. skeptics, and how the market "
-    "itself might react to increased media attention."
+    "Simulate public reaction on Twitter and Reddit to this article. "
+    "Focus on: community reactions, discussion threads, and how different "
+    "user segments respond to the content."
 )
 
 
@@ -47,7 +43,7 @@ def banner(title):
 def setup():
     banner("SETUP")
 
-    for d in ['twitter', 'reddit', 'polymarket']:
+    for d in ['twitter', 'reddit']:
         os.makedirs(os.path.join(SIM_DIR, d), exist_ok=True)
 
     # Load existing outputs
@@ -59,17 +55,6 @@ def setup():
     profile_lookup = {p['name'].lower(): p for p in phase4_profiles}
     agent_configs = config.get('agent_configs', [])
 
-    # ── Generate single market ──
-    from app.services.simulation_config_generator import SimulationConfigGenerator, EventConfig
-    gen = SimulationConfigGenerator()
-    ec = EventConfig()
-    ec.hot_topics = config.get('event_config', {}).get('hot_topics', [])
-    ctx = f"## Simulation Requirement\n{SIMULATION_REQUIREMENT}"
-    markets = gen._generate_prediction_markets(ctx, SIMULATION_REQUIREMENT, ec)
-
-    print(f"  Market: \"{markets[0]['question']}\"")
-    print(f"  Starting: YES ${markets[0]['initial_probability']:.2f}")
-
     # ── Override config ──
     config['time_config']['off_peak_activity_multiplier'] = 1.0
     config['time_config']['morning_activity_multiplier'] = 1.0
@@ -78,7 +63,6 @@ def setup():
     config['time_config']['agents_per_hour_min'] = len(agent_configs)
     config['time_config']['agents_per_hour_max'] = len(agent_configs)
     config['simulation_requirement'] = SIMULATION_REQUIREMENT
-    config['event_config']['initial_markets'] = markets
 
     for ac in agent_configs:
         ac['activity_level'] = 0.8  # not 1.0 — let some DO_NOTHING happen
@@ -117,35 +101,19 @@ def setup():
                 'description': bio.replace('\n', ' '),
             })
 
-    # ── Polymarket profiles ──
-    pm_profiles = []
-    for i, ac in enumerate(agent_configs):
-        name = ac.get('entity_name', f'Agent_{i}')
-        p4 = profile_lookup.get(name.lower(), {})
-        pm_profiles.append({
-            "user_id": i,
-            "name": p4.get('user_name', name.lower().replace(' ', '_')),
-            "display_name": name,  # readable entity name for DB + logs
-            "description": p4.get('bio', ''),
-            "risk_tolerance": p4.get('risk_tolerance', 'moderate'),
-            "user_profile": p4.get('persona', ''),
-        })
-    with open(os.path.join(SIM_DIR, 'polymarket_profiles.json'), 'w') as f:
-        json.dump(pm_profiles, f, ensure_ascii=False, indent=2)
-
     # ── Save config ──
     config_path = os.path.join(SIM_DIR, 'simulation_config.json')
     with open(config_path, 'w') as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
 
     print(f"  Agents: {len(agent_configs)}")
-    print(f"  Platforms: Twitter + Reddit + Polymarket")
+    print(f"  Platforms: Twitter + Reddit")
     print(f"  Rounds: 8")
-    return config_path, markets
+    return config_path
 
 
 def run_simulation(config_path):
-    banner("SIMULATION: 8 rounds, all 3 platforms, cross-platform ON")
+    banner("SIMULATION: 8 rounds, Twitter + Reddit, cross-platform ON")
 
     import subprocess
     cmd = [
@@ -183,7 +151,7 @@ def analyze():
     banner("ANALYSIS: Cross-platform interconnections")
 
     # ── Per-platform action breakdown ──
-    for platform in ['twitter', 'reddit', 'polymarket']:
+    for platform in ['twitter', 'reddit']:
         path = os.path.join(SIM_DIR, platform, 'actions.jsonl')
         if not os.path.exists(path):
             print(f"\n  [{platform.upper()}] No actions file")
@@ -213,54 +181,6 @@ def analyze():
                 content = p.get('action_args', {}).get('content', '')[:140]
                 print(f"    [{agent}] {content}")
 
-    # ── Polymarket market state ──
-    db = os.path.join(SIM_DIR, 'polymarket_simulation.db')
-    if os.path.exists(db):
-        conn = sqlite3.connect(db)
-        conn.row_factory = sqlite3.Row
-
-        print(f"\n  [MARKET STATE]")
-        for row in conn.execute("SELECT * FROM market"):
-            ra, rb = row['reserve_a'], row['reserve_b']
-            total = ra + rb
-            price_yes = rb / total if total > 0 else 0.5
-            trades = conn.execute('SELECT COUNT(*) FROM trade WHERE market_id=?', (row['market_id'],)).fetchone()[0]
-            print(f"    \"{row['question'][:70]}\"")
-            print(f"    YES: ${price_yes:.3f} | Trades: {trades}")
-
-        print(f"\n  [TRADES]")
-        for t in conn.execute("SELECT t.*, u.user_name FROM trade t JOIN user u ON t.user_id=u.user_id ORDER BY t.rowid"):
-            agent = t['user_name'] or f"Agent_{t['user_id']}"
-            side = t['side'].upper()
-            print(f"    {side:4s} {agent:30s} {t['outcome']:3s} {t['shares']:6.0f} shares @ ${t['price']:.3f}")
-
-        print(f"\n  [P&L]")
-        for row in conn.execute("SELECT p.user_id, p.balance, u.user_name FROM portfolio p JOIN user u ON p.user_id=u.user_id"):
-            pv = 0
-            for pos in conn.execute(
-                "SELECT pos.shares, pos.outcome, m.reserve_a, m.reserve_b, m.outcome_a "
-                "FROM position pos JOIN market m ON pos.market_id=m.market_id "
-                "WHERE pos.user_id=? AND pos.shares>0.01", (row['user_id'],)
-            ):
-                ra, rb = pos['reserve_a'], pos['reserve_b']
-                t = ra + rb
-                cp = (rb/t) if pos['outcome'] == pos['outcome_a'] else (ra/t)
-                pv += pos['shares'] * cp
-            total_val = row['balance'] + pv
-            pnl = total_val - 1000
-            print(f"    {(row['user_name'] or '?'):30s} Cash: ${row['balance']:.0f} Pos: ${pv:.0f} Total: ${total_val:.0f} P&L: {'+'if pnl>=0 else ''}{pnl:.0f}")
-
-        # Comments
-        comments = conn.execute(
-            "SELECT mc.*, u.user_name FROM market_comment mc JOIN user u ON mc.user_id=u.user_id ORDER BY mc.rowid"
-        ).fetchall()
-        if comments:
-            print(f"\n  [MARKET COMMENTS] ({len(comments)})")
-            for c in comments[:5]:
-                print(f"    [{c['user_name']}] {c['content'][:140]}")
-
-        conn.close()
-
     # ── Cross-platform evidence ──
     banner("CROSS-PLATFORM INTERCONNECTION CHECK")
 
@@ -272,24 +192,12 @@ def analyze():
         with open(path) as f:
             actions = [json.loads(l) for l in f if l.strip()]
         posts = [a for a in actions if a.get('action_type') in ('CREATE_POST', 'CREATE_COMMENT', 'QUOTE_POST')]
-        market_refs = [p for p in posts if any(kw in (p.get('action_args', {}).get('content', '') or '').lower()
-                       for kw in ['market', 'price', '$0.', 'yes', 'shares', 'betting', 'polymarket', 'prediction'])]
-        print(f"  [{platform.upper()}] {len(market_refs)}/{len(posts)} posts reference markets/prediction")
-        for mr in market_refs[:3]:
-            content = mr.get('action_args', {}).get('content', '')[:150]
-            print(f"    [{mr.get('agent_name', '?')}] {content}")
-
-    # Check if Polymarket comments reference social sentiment
-    if os.path.exists(db):
-        conn = sqlite3.connect(db)
-        conn.row_factory = sqlite3.Row
-        comments = conn.execute("SELECT mc.*, u.user_name FROM market_comment mc JOIN user u ON mc.user_id=u.user_id").fetchall()
-        social_refs = [c for c in comments if any(kw in (c['content'] or '').lower()
-                       for kw in ['twitter', 'reddit', 'social media', 'sentiment', 'posts', 'discussion', 'community'])]
-        print(f"\n  [POLYMARKET] {len(social_refs)}/{len(comments)} comments reference social media")
-        for sr in social_refs[:3]:
-            print(f"    [{sr['user_name']}] {sr['content'][:150]}")
-        conn.close()
+        cross_refs = [p for p in posts if any(kw in (p.get('action_args', {}).get('content', '') or '').lower()
+                      for kw in ['twitter', 'reddit', 'social media', 'trending', 'community'])]
+        print(f"  [{platform.upper()}] {len(cross_refs)}/{len(posts)} posts reference cross-platform activity")
+        for cr in cross_refs[:3]:
+            content = cr.get('action_args', {}).get('content', '')[:150]
+            print(f"    [{cr.get('agent_name', '?')}] {content}")
 
     # Check round memory file
     trajectory = os.path.join(SIM_DIR, 'trajectory.json')
@@ -316,7 +224,7 @@ def main():
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'#'*60}")
 
-    config_path, markets = setup()
+    config_path = setup()
     elapsed = run_simulation(config_path)
     analyze()
 

@@ -8,8 +8,8 @@ Log structure:
     │   └── actions.jsonl    # Twitter platform action log
     ├── reddit/
     │   └── actions.jsonl    # Reddit platform action log
-    ├── simulation.log       # Main simulation process log
-    └── run_state.json       # Run state (for API queries)
+    ├── simulation.log        # Main simulation process log
+    └── run_state.json        # Run state (for API queries)
 """
 
 import json
@@ -133,7 +133,6 @@ class SimulationLogManager:
         self.simulation_dir = simulation_dir
         self.twitter_logger: Optional[PlatformActionLogger] = None
         self.reddit_logger: Optional[PlatformActionLogger] = None
-        self.polymarket_logger: Optional[PlatformActionLogger] = None
         self._main_logger: Optional[logging.Logger] = None
         
         # Set up main logger
@@ -180,12 +179,6 @@ class SimulationLogManager:
             self.reddit_logger = PlatformActionLogger("reddit", self.simulation_dir)
         return self.reddit_logger
 
-    def get_polymarket_logger(self) -> PlatformActionLogger:
-        """Get the Polymarket platform action logger"""
-        if self.polymarket_logger is None:
-            self.polymarket_logger = PlatformActionLogger("polymarket", self.simulation_dir)
-        return self.polymarket_logger
-    
     def log(self, message: str, level: str = "info"):
         """Log to the main logger"""
         if self._main_logger:

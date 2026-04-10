@@ -59,7 +59,6 @@
             <div class="lb-platforms">
               <span v-if="agent.platforms.includes('twitter')" class="platform-pill twitter">X</span>
               <span v-if="agent.platforms.includes('reddit')" class="platform-pill reddit">Reddit</span>
-              <span v-if="agent.platforms.includes('polymarket')" class="platform-pill polymarket">PM</span>
             </div>
           </div>
         </div>
@@ -372,7 +371,6 @@ onMounted(() => { if (props.visible) load() })
 
 .platform-pill.twitter { background: rgba(10,10,10,0.07); color: rgba(10,10,10,0.5); }
 .platform-pill.reddit { background: rgba(255,69,0,0.1); color: #c44b00; }
-.platform-pill.polymarket { background: rgba(99,102,241,0.1); color: #4f46e5; }
 
 /* ── Breakdown ── */
 .lb-breakdown {

@@ -93,11 +93,6 @@
             <span class="stat-label">Reddit</span>
             <span class="stat-value">{{ visibleRedditCount }}</span>
           </span>
-          <span class="stat-divider"></span>
-          <span class="stat-item">
-            <span class="stat-label">PM</span>
-            <span class="stat-value">{{ visiblePolymarketCount }}</span>
-          </span>
         </div>
       </div>
 
@@ -134,7 +129,6 @@
                     <div class="platform-indicator" :class="action.platform">
                       <svg v-if="action.platform === 'twitter'" viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
                       <img v-else-if="action.platform === 'reddit'" src="/reddit.png" class="platform-logo" alt="Reddit" />
-                      <img v-else-if="action.platform === 'polymarket'" src="/pm.png" class="platform-logo" alt="Polymarket" />
                     </div>
                     <div class="action-badge" :class="getActionTypeClass(action.action_type)">
                       {{ getActionTypeLabel(action.action_type) }}
@@ -285,7 +279,6 @@ const visibleActions = computed(() => {
 
 const visibleTwitterCount = computed(() => visibleActions.value.filter(a => a.platform === 'twitter').length)
 const visibleRedditCount = computed(() => visibleActions.value.filter(a => a.platform === 'reddit').length)
-const visiblePolymarketCount = computed(() => visibleActions.value.filter(a => a.platform === 'polymarket').length)
 
 const progressPercent = computed(() => {
   if (totalRounds.value === 0) return 0
@@ -832,10 +825,8 @@ onUnmounted(() => {
 
 .timeline-item.twitter .marker-dot { background: #0A0A0A; }
 .timeline-item.reddit .marker-dot { background: #FF6B1A; }
-.timeline-item.polymarket .marker-dot { background: #FF6B1A; }
 .timeline-item.twitter .timeline-marker { border-color: #0A0A0A; }
 .timeline-item.reddit .timeline-marker { border-color: #FF6B1A; }
-.timeline-item.polymarket .timeline-marker { border-color: #FF6B1A; }
 
 .timeline-card {
   width: calc(100% - 48px);
@@ -850,7 +841,6 @@ onUnmounted(() => {
 .timeline-card:hover { border-color: #FF6B1A; }
 .timeline-item.twitter .timeline-card { border-left: 2px solid #0A0A0A; }
 .timeline-item.reddit .timeline-card { border-left: 2px solid #FF6B1A; }
-.timeline-item.polymarket .timeline-card { border-left: 2px solid #FF6B1A; }
 
 .card-header {
   display: flex;

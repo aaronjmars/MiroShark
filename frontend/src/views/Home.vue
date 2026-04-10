@@ -31,7 +31,7 @@
 
         <div class="hero-desc">
           <p>
-            Upload any document. <span class="highlight-bold">MiroShark</span> extracts the key players, generates <span class="highlight-orange">hundreds of AI agents</span> with unique personas, and simulates how they'd react on Twitter, Reddit, and Polymarket. Watch opinions form, arguments spread, and markets move.
+            Upload any document. <span class="highlight-bold">MiroShark</span> extracts the key players, generates <span class="highlight-orange">hundreds of AI agents</span> with unique personas, and simulates how they'd react on Twitter and Reddit. Watch opinions form, arguments spread, and narratives evolve.
           </p>
           <p class="slogan-text">
             Don't predict the future. Simulate it<span class="blinking-cursor">_</span>

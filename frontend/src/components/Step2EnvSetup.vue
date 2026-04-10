@@ -351,29 +351,6 @@
                     </div>
                   </div>
                 </div>
-                <div class="platform-card">
-                  <div class="platform-card-header">
-                    <span class="platform-name">Polymarket</span>
-                  </div>
-                  <div class="platform-params">
-                    <div class="param-row">
-                      <span class="param-label">Market Maker</span>
-                      <span class="param-value">Constant-Product AMM</span>
-                    </div>
-                    <div class="param-row">
-                      <span class="param-label">Initial Liquidity</span>
-                      <span class="param-value">$100 per outcome</span>
-                    </div>
-                    <div class="param-row">
-                      <span class="param-label">Trading Actions</span>
-                      <span class="param-value">Buy/Sell YES & NO shares</span>
-                    </div>
-                    <div class="param-row">
-                      <span class="param-label">Market-Media Bridge</span>
-                      <span class="param-value">Enabled (prices feed social media)</span>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
 

@@ -125,7 +125,7 @@ class EventConfig:
     # Public opinion direction
     narrative_direction: str = ""
 
-    # Polymarket prediction markets (seeded at round 0)
+    # Prediction markets config (legacy field, kept for config compatibility)
     initial_markets: List[Dict[str, Any]] = field(default_factory=list)
 
 

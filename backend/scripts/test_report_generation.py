@@ -21,10 +21,9 @@ load_dotenv(os.path.join(_backend_dir, '..', '.env'))
 OUT_DIR = os.path.join(_backend_dir, 'pipeline_test_output')
 
 SIMULATION_REQUIREMENT = (
-    "Simulate public reaction on Twitter, Reddit, and Polymarket to this article "
-    "about Polymarket's rise. Focus on: crypto community reactions, regulatory "
-    "concerns, prediction market enthusiasts vs. skeptics, and how the market "
-    "itself might react to increased media attention."
+    "Simulate public reaction on Twitter and Reddit to this article. "
+    "Focus on: community reactions, discussion threads, and how different "
+    "user segments respond to the content."
 )
 
 

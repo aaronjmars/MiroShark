@@ -112,23 +112,18 @@ class SimulationRunState:
     # Per-platform independent rounds and simulated time (for multi-platform parallel display)
     twitter_current_round: int = 0
     reddit_current_round: int = 0
-    polymarket_current_round: int = 0
     twitter_simulated_hours: int = 0
     reddit_simulated_hours: int = 0
-    polymarket_simulated_hours: int = 0
 
     # Platform status
     twitter_running: bool = False
     reddit_running: bool = False
-    polymarket_running: bool = False
     twitter_actions_count: int = 0
     reddit_actions_count: int = 0
-    polymarket_actions_count: int = 0
 
     # Platform completion status (detected via simulation_end events in actions.jsonl)
     twitter_completed: bool = False
     reddit_completed: bool = False
-    polymarket_completed: bool = False
 
     # Per-round summaries
     rounds: List[RoundSummary] = field(default_factory=list)
@@ -158,8 +153,6 @@ class SimulationRunState:
             self.twitter_actions_count += 1
         elif action.platform == "reddit":
             self.reddit_actions_count += 1
-        elif action.platform == "polymarket":
-            self.polymarket_actions_count += 1
         
         self.updated_at = datetime.now().isoformat()
     
@@ -175,20 +168,15 @@ class SimulationRunState:
             # Per-platform independent rounds and time
             "twitter_current_round": self.twitter_current_round,
             "reddit_current_round": self.reddit_current_round,
-            "polymarket_current_round": self.polymarket_current_round,
             "twitter_simulated_hours": self.twitter_simulated_hours,
             "reddit_simulated_hours": self.reddit_simulated_hours,
-            "polymarket_simulated_hours": self.polymarket_simulated_hours,
             "twitter_running": self.twitter_running,
             "reddit_running": self.reddit_running,
-            "polymarket_running": self.polymarket_running,
             "twitter_completed": self.twitter_completed,
             "reddit_completed": self.reddit_completed,
-            "polymarket_completed": self.polymarket_completed,
             "twitter_actions_count": self.twitter_actions_count,
             "reddit_actions_count": self.reddit_actions_count,
-            "polymarket_actions_count": self.polymarket_actions_count,
-            "total_actions_count": self.twitter_actions_count + self.reddit_actions_count + self.polymarket_actions_count,
+            "total_actions_count": self.twitter_actions_count + self.reddit_actions_count,
             "started_at": self.started_at,
             "updated_at": self.updated_at,
             "completed_at": self.completed_at,
@@ -271,19 +259,14 @@ class SimulationRunner:
                 # Per-platform independent rounds and time
                 twitter_current_round=data.get("twitter_current_round", 0),
                 reddit_current_round=data.get("reddit_current_round", 0),
-                polymarket_current_round=data.get("polymarket_current_round", 0),
                 twitter_simulated_hours=data.get("twitter_simulated_hours", 0),
                 reddit_simulated_hours=data.get("reddit_simulated_hours", 0),
-                polymarket_simulated_hours=data.get("polymarket_simulated_hours", 0),
                 twitter_running=data.get("twitter_running", False),
                 reddit_running=data.get("reddit_running", False),
-                polymarket_running=data.get("polymarket_running", False),
                 twitter_completed=data.get("twitter_completed", False),
                 reddit_completed=data.get("reddit_completed", False),
-                polymarket_completed=data.get("polymarket_completed", False),
                 twitter_actions_count=data.get("twitter_actions_count", 0),
                 reddit_actions_count=data.get("reddit_actions_count", 0),
-                polymarket_actions_count=data.get("polymarket_actions_count", 0),
                 started_at=data.get("started_at"),
                 updated_at=data.get("updated_at", datetime.now().isoformat()),
                 completed_at=data.get("completed_at"),
@@ -329,7 +312,7 @@ class SimulationRunner:
     def start_simulation(
         cls,
         simulation_id: str,
-        platform: str = "parallel",  # twitter / reddit / polymarket / parallel
+        platform: str = "parallel",  # twitter / reddit / parallel
         max_rounds: int = None,  # Max simulation rounds (optional, to truncate overly long simulations)
         enable_graph_memory_update: bool = False,  # Whether to update activities to knowledge graph
         graph_id: str = None,  # Graph ID (required when graph update is enabled)
@@ -413,14 +396,10 @@ class SimulationRunner:
         elif platform == "reddit":
             script_name = "run_reddit_simulation.py"
             state.reddit_running = True
-        elif platform == "polymarket":
-            script_name = "run_parallel_simulation.py"
-            state.polymarket_running = True
         else:
             script_name = "run_parallel_simulation.py"
             state.twitter_running = True
             state.reddit_running = True
-            state.polymarket_running = True
         
         script_path = os.path.join(cls.SCRIPTS_DIR, script_name)
         
@@ -456,10 +435,6 @@ class SimulationRunner:
             # If env-only mode (for interviews without simulation)
             if env_only:
                 cmd.append("--env-only")
-
-            # Polymarket-only mode
-            if platform == "polymarket":
-                cmd.append("--polymarket-only")
 
             # Enable cross-platform awareness when multiple platforms are running
             if platform == "parallel" and enable_cross_platform:
@@ -527,7 +502,6 @@ class SimulationRunner:
         # New log structure: per-platform action logs
         twitter_actions_log = os.path.join(sim_dir, "twitter", "actions.jsonl")
         reddit_actions_log = os.path.join(sim_dir, "reddit", "actions.jsonl")
-        polymarket_actions_log = os.path.join(sim_dir, "polymarket", "actions.jsonl")
 
         process = cls._processes.get(simulation_id)
         state = cls.get_run_state(simulation_id)
@@ -539,13 +513,10 @@ class SimulationRunner:
         # old simulation_end events that would falsely mark the sim as completed
         twitter_position = 0
         reddit_position = 0
-        polymarket_position = 0
         if os.path.exists(twitter_actions_log):
             twitter_position = os.path.getsize(twitter_actions_log)
         if os.path.exists(reddit_actions_log):
             reddit_position = os.path.getsize(reddit_actions_log)
-        if os.path.exists(polymarket_actions_log):
-            polymarket_position = os.path.getsize(polymarket_actions_log)
 
         try:
             while process.poll() is None:  # Process still running
@@ -561,12 +532,6 @@ class SimulationRunner:
                         reddit_actions_log, reddit_position, state, "reddit"
                     )
 
-                # Read Polymarket action logs
-                if os.path.exists(polymarket_actions_log):
-                    polymarket_position = cls._read_action_log(
-                        polymarket_actions_log, polymarket_position, state, "polymarket"
-                    )
-
                 # Update status
                 cls._save_run_state(state)
                 time.sleep(2)
@@ -576,8 +541,6 @@ class SimulationRunner:
                 cls._read_action_log(twitter_actions_log, twitter_position, state, "twitter")
             if os.path.exists(reddit_actions_log):
                 cls._read_action_log(reddit_actions_log, reddit_position, state, "reddit")
-            if os.path.exists(polymarket_actions_log):
-                cls._read_action_log(polymarket_actions_log, polymarket_position, state, "polymarket")
             
             # Process ended
             exit_code = process.returncode
@@ -602,7 +565,6 @@ class SimulationRunner:
             
             state.twitter_running = False
             state.reddit_running = False
-            state.polymarket_running = False
             cls._save_run_state(state)
 
         except Exception as e:
@@ -688,10 +650,6 @@ class SimulationRunner:
                                         state.reddit_completed = True
                                         state.reddit_running = False
                                         logger.info(f"Reddit simulation completed: {state.simulation_id}, total_rounds={action_data.get('total_rounds')}, total_actions={action_data.get('total_actions')}")
-                                    elif platform == "polymarket":
-                                        state.polymarket_completed = True
-                                        state.polymarket_running = False
-                                        logger.info(f"Polymarket simulation completed: {state.simulation_id}, total_rounds={action_data.get('total_rounds')}, total_actions={action_data.get('total_actions')}")
                                     
                                     # Check if all enabled platforms are completed
                                     # If only one platform was running, only check that one
@@ -716,16 +674,12 @@ class SimulationRunner:
                                         if round_num > state.reddit_current_round:
                                             state.reddit_current_round = round_num
                                         state.reddit_simulated_hours = simulated_hours
-                                    elif platform == "polymarket":
-                                        if round_num > state.polymarket_current_round:
-                                            state.polymarket_current_round = round_num
-                                        state.polymarket_simulated_hours = simulated_hours
 
                                     # Overall round is the maximum of all platforms
                                     if round_num > state.current_round:
                                         state.current_round = round_num
                                     # Overall time is the maximum of all platforms
-                                    state.simulated_hours = max(state.twitter_simulated_hours, state.reddit_simulated_hours, state.polymarket_simulated_hours)
+                                    state.simulated_hours = max(state.twitter_simulated_hours, state.reddit_simulated_hours)
                                 
                                 continue
                             
@@ -770,23 +724,19 @@ class SimulationRunner:
         sim_dir = os.path.join(cls.RUN_STATE_DIR, state.simulation_id)
         twitter_log = os.path.join(sim_dir, "twitter", "actions.jsonl")
         reddit_log = os.path.join(sim_dir, "reddit", "actions.jsonl")
-        polymarket_log = os.path.join(sim_dir, "polymarket", "actions.jsonl")
 
         # Check which platforms are enabled (determined by file existence)
         twitter_enabled = os.path.exists(twitter_log)
         reddit_enabled = os.path.exists(reddit_log)
-        polymarket_enabled = os.path.exists(polymarket_log)
 
         # If platform is enabled but not completed, return False
         if twitter_enabled and not state.twitter_completed:
             return False
         if reddit_enabled and not state.reddit_completed:
             return False
-        if polymarket_enabled and not state.polymarket_completed:
-            return False
 
         # At least one platform is enabled and completed
-        return twitter_enabled or reddit_enabled or polymarket_enabled
+        return twitter_enabled or reddit_enabled
     
     @classmethod
     def _terminate_process(cls, process: subprocess.Popen, simulation_id: str, timeout: int = 10):
@@ -877,7 +827,6 @@ class SimulationRunner:
         state.runner_status = RunnerStatus.STOPPED
         state.twitter_running = False
         state.reddit_running = False
-        state.polymarket_running = False
         state.completed_at = datetime.now().isoformat()
         cls._save_run_state(state)
         
@@ -1007,17 +956,6 @@ class SimulationRunner:
                 round_num=round_num
             ))
 
-        # Read Polymarket action file
-        polymarket_actions_log = os.path.join(sim_dir, "polymarket", "actions.jsonl")
-        if not platform or platform == "polymarket":
-            actions.extend(cls._read_actions_from_file(
-                polymarket_actions_log,
-                default_platform="polymarket",
-                platform_filter=platform,
-                agent_id=agent_id,
-                round_num=round_num
-            ))
-
         # If per-platform files do not exist, try reading old single file format
         if not actions:
             actions_log = os.path.join(sim_dir, "actions.jsonl")
@@ -1077,9 +1015,8 @@ class SimulationRunner:
         """
         sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
         platform_files = [
-            ("twitter",     os.path.join(sim_dir, "twitter",     "actions.jsonl")),
-            ("reddit",      os.path.join(sim_dir, "reddit",      "actions.jsonl")),
-            ("polymarket",  os.path.join(sim_dir, "polymarket",  "actions.jsonl")),
+            ("twitter",  os.path.join(sim_dir, "twitter",  "actions.jsonl")),
+            ("reddit",   os.path.join(sim_dir, "reddit",   "actions.jsonl")),
         ]
         found_any = False
         for plat, path in platform_files:
@@ -1260,7 +1197,7 @@ class SimulationRunner:
         ]
         
         # Directories to clean (containing action logs)
-        dirs_to_clean = ["twitter", "reddit", "polymarket"]
+        dirs_to_clean = ["twitter", "reddit"]
         
         # Delete files
         for filename in files_to_delete:

@@ -33,20 +33,18 @@ _backend_dir = os.path.abspath(os.path.join(_scripts_dir, '..'))
 
 PDF_PATH = os.path.join(
     _backend_dir, '..',
-    'From Bathroom Office to $9 Billion Prediction Empire_ The Rise of Polymarket.pdf'
+    'sample_article.pdf'
 )
 
 SIMULATION_REQUIREMENT = (
-    "Simulate public reaction on Twitter, Reddit, and Polymarket to this article "
-    "about Polymarket's rise. Focus on: crypto community reactions, regulatory "
-    "concerns, prediction market enthusiasts vs. skeptics, and how the market "
-    "itself might react to increased media attention."
+    "Simulate public reaction on Twitter and Reddit to this article. "
+    "Focus on: community reactions, discussion threads, and how different "
+    "user segments respond to the content."
 )
 
 MAX_SIM_ROUNDS = 3          # Keep short for testing
 POLL_INTERVAL = 5           # Seconds between status polls
 POLL_TIMEOUT = 1800         # Max seconds to wait for any async phase (30 min)
-ENABLE_POLYMARKET = True    # Test all 3 platforms
 
 # ── Output ──
 
@@ -267,12 +265,11 @@ def phase3_create_simulation(project_id):
         'project_id': project_id,
         'enable_twitter': True,
         'enable_reddit': True,
-        'enable_polymarket': ENABLE_POLYMARKET
     })
 
     simulation_id = data['simulation_id']
     ok(f"Simulation: {simulation_id}")
-    ok(f"Platforms: twitter={data.get('enable_twitter')}, reddit={data.get('enable_reddit')}, polymarket={data.get('enable_polymarket')}")
+    ok(f"Platforms: twitter={data.get('enable_twitter')}, reddit={data.get('enable_reddit')}")
     ok(f"Time: {time.time()-t0:.1f}s")
 
     save_json('03_simulation_created', data)
@@ -348,10 +345,9 @@ def phase5_run(simulation_id):
     actions = result.get('total_actions_count', 0)
     twitter_actions = result.get('twitter_actions_count', 0)
     reddit_actions = result.get('reddit_actions_count', 0)
-    polymarket_actions = result.get('polymarket_actions_count', 0)
 
     ok(f"Simulation finished: {result.get('runner_status')}")
-    ok(f"Total actions: {actions} (Twitter: {twitter_actions}, Reddit: {reddit_actions}, Polymarket: {polymarket_actions})")
+    ok(f"Total actions: {actions} (Twitter: {twitter_actions}, Reddit: {reddit_actions})")
     ok(f"Time: {time.time()-t0:.1f}s")
 
     save_json('05_run_result', result)
@@ -441,7 +437,6 @@ def main():
     print(f"  API: {BASE_URL}")
     print(f"  PDF: {os.path.basename(PDF_PATH)}")
     print(f"  Rounds: {MAX_SIM_ROUNDS}")
-    print(f"  Polymarket: {'enabled' if ENABLE_POLYMARKET else 'disabled'}")
     print(f"  Output: {OUT_DIR}")
     print(f"  Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'#'*60}{Colors.RESET}")

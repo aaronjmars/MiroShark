@@ -77,13 +77,11 @@
     <!-- Total Events Summary -->
     <div class="events-summary">
       <span class="events-label">TOTAL EVENTS:</span>
-      <span class="events-total">{{ (runStatus.twitter_actions_count || 0) + (runStatus.reddit_actions_count || 0) + (runStatus.polymarket_actions_count || 0) }}</span>
+      <span class="events-total">{{ (runStatus.twitter_actions_count || 0) + (runStatus.reddit_actions_count || 0) }}</span>
       <span class="events-divider"></span>
       <span class="events-platform">X <span class="events-count">{{ runStatus.twitter_actions_count || 0 }}</span></span>
       <span class="events-slash">/</span>
       <span class="events-platform">Reddit <span class="events-count">{{ runStatus.reddit_actions_count || 0 }}</span></span>
-      <span class="events-slash">/</span>
-      <span class="events-platform">Polymarket <span class="events-count">{{ runStatus.polymarket_actions_count || 0 }}</span></span>
     </div>
 
     <!-- Platform Status Rows -->
@@ -119,20 +117,6 @@
           <div class="platform-actions-list"><span class="action-tag">POST</span><span class="action-tag">COMMENT</span><span class="action-tag">LIKE</span><span class="action-tag">DISLIKE</span><span class="action-tag">SEARCH</span><span class="action-tag">FOLLOW</span></div>
         </div>
 
-        <!-- Polymarket -->
-        <div class="platform-status polymarket" :class="{ active: runStatus.polymarket_running, completed: runStatus.polymarket_completed, selected: filteredPlatform === 'polymarket', dimmed: filteredPlatform && filteredPlatform !== 'polymarket' }" @click="filterByPlatform('polymarket')">
-          <div class="platform-left">
-            <img src="/pm.png" class="platform-icon-img" alt="Polymarket" />
-            <span class="platform-name">Polymarket</span>
-            <span v-if="runStatus.polymarket_completed" class="status-badge done">done</span>
-          </div>
-          <div class="platform-stats">
-            <span class="stat"><span class="stat-label">RND</span><span class="stat-value mono">{{ runStatus.polymarket_current_round || 0 }}<span class="stat-total">/{{ runStatus.total_rounds || maxRounds || '-' }}</span></span></span>
-            <span class="stat"><span class="stat-label">TIME</span><span class="stat-value mono">{{ polymarketElapsedTime }}</span></span>
-            <span class="stat"><span class="stat-label">TRADES</span><span class="stat-value mono">{{ runStatus.polymarket_actions_count || 0 }}</span></span>
-          </div>
-          <div class="platform-actions-list"><span class="action-tag">BROWSE</span><span class="action-tag">BUY</span><span class="action-tag">SELL</span><span class="action-tag">CREATE</span><span class="action-tag">COMMENT</span></div>
-        </div>
       </div>
     </div>
 
@@ -156,7 +140,7 @@
       <!-- Platform Filter Bar -->
       <div v-if="filteredPlatform" class="agent-filter-bar">
         <div class="filter-info">
-          <span class="filter-name" :class="filteredPlatform">{{ filteredPlatform === 'twitter' ? 'X' : filteredPlatform === 'reddit' ? 'Reddit' : 'Polymarket' }}</span>
+          <span class="filter-name" :class="filteredPlatform">{{ filteredPlatform === 'twitter' ? 'X' : 'Reddit' }}</span>
           <span class="filter-count">{{ chronologicalActions.length }} events</span>
         </div>
         <button class="filter-clear" @click="clearPlatformFilter">Clear</button>
@@ -198,7 +182,6 @@
                   <div class="platform-indicator" :class="action.platform">
                     <svg v-if="action.platform === 'twitter'" viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
                     <img v-else-if="action.platform === 'reddit'" src="/reddit.png" class="platform-logo" alt="Reddit" />
-                    <img v-else-if="action.platform === 'polymarket'" src="/pm.png" class="platform-logo" alt="Polymarket" />
                   </div>
                   <div class="action-badge" :class="getActionTypeClass(action.action_type)">
                     {{ getActionTypeLabel(action.action_type) }}
@@ -328,50 +311,8 @@
                   </div>
                 </template>
 
-                <!-- BUY_SHARES -->
-                <template v-if="action.action_type === 'BUY_SHARES'">
-                  <div class="trade-info">
-                    <span class="trade-direction buy">BUY</span>
-                    <span class="trade-detail">{{ formatShares(action.action_args?.shares) }} <strong>{{ action.action_args?.outcome }}</strong> shares</span>
-                    <span class="trade-cost">@ ${{ formatPrice(action.action_args?.price) }}</span>
-                    <span class="trade-total">${{ formatPrice(action.action_args?.cost) }}</span>
-                  </div>
-                  <div v-if="action.action_args?.market_id" class="market-ref">Market #{{ action.action_args.market_id }}</div>
-                </template>
-
-                <!-- SELL_SHARES -->
-                <template v-if="action.action_type === 'SELL_SHARES'">
-                  <div class="trade-info">
-                    <span class="trade-direction sell">SELL</span>
-                    <span class="trade-detail">{{ formatShares(action.action_args?.shares) }} <strong>{{ action.action_args?.outcome }}</strong> shares</span>
-                    <span class="trade-cost">@ ${{ formatPrice(action.action_args?.price || (action.action_args?.usd_received && action.action_args?.shares ? action.action_args.usd_received / action.action_args.shares : null)) }}</span>
-                    <span class="trade-total text-green">${{ formatPrice(action.action_args?.usd_received) }}</span>
-                  </div>
-                  <div v-if="action.action_args?.market_id" class="market-ref">Market #{{ action.action_args.market_id }}</div>
-                </template>
-
-                <!-- CREATE_MARKET -->
-                <template v-if="action.action_type === 'CREATE_MARKET'">
-                  <div class="market-question">"{{ action.action_args?.question }}"</div>
-                  <div v-if="action.action_args?.market_id" class="market-ref">Market #{{ action.action_args.market_id }}</div>
-                </template>
-
-                <!-- COMMENT_ON_MARKET -->
-                <template v-if="action.action_type === 'COMMENT_ON_MARKET'">
-                  <div v-if="action.action_args?.content" class="content-text">{{ action.action_args.content }}</div>
-                  <div v-if="action.action_args?.market_id" class="market-ref">Market #{{ action.action_args.market_id }}</div>
-                </template>
-
-                <!-- BROWSE_MARKETS / VIEW_PORTFOLIO -->
-                <template v-if="action.action_type === 'BROWSE_MARKETS'">
-                  <div class="idle-info"><span class="idle-label">Browsed active markets</span></div>
-                </template>
-                <template v-if="action.action_type === 'VIEW_PORTFOLIO'">
-                  <div class="idle-info"><span class="idle-label">Checked portfolio</span></div>
-                </template>
-
                 <!-- Generic fallback -->
-                <div v-if="!['CREATE_POST', 'QUOTE_POST', 'REPOST', 'LIKE_POST', 'DISLIKE_POST', 'CREATE_COMMENT', 'LIKE_COMMENT', 'DISLIKE_COMMENT', 'SEARCH_POSTS', 'FOLLOW', 'MUTE', 'UPVOTE_POST', 'DOWNVOTE_POST', 'DO_NOTHING', 'BUY_SHARES', 'SELL_SHARES', 'CREATE_MARKET', 'COMMENT_ON_MARKET', 'BROWSE_MARKETS', 'VIEW_PORTFOLIO'].includes(action.action_type) && action.action_args?.content" class="content-text">
+                <div v-if="!['CREATE_POST', 'QUOTE_POST', 'REPOST', 'LIKE_POST', 'DISLIKE_POST', 'CREATE_COMMENT', 'LIKE_COMMENT', 'DISLIKE_COMMENT', 'SEARCH_POSTS', 'FOLLOW', 'MUTE', 'UPVOTE_POST', 'DOWNVOTE_POST', 'DO_NOTHING'].includes(action.action_type) && action.action_args?.content" class="content-text">
                   {{ action.action_args.content }}
                 </div>
               </div>
@@ -509,10 +450,6 @@ const redditActionsCount = computed(() => {
   return allActions.value.filter(a => a.platform === 'reddit').length
 })
 
-const polymarketActionsCount = computed(() => {
-  return allActions.value.filter(a => a.platform === 'polymarket').length
-})
-
 // Has partial data (not fully completed) — show Resume button
 const hasPartialData = computed(() => {
   const currentRound = runStatus.value.current_round || 0
@@ -549,11 +486,6 @@ const twitterElapsedTime = computed(() => {
 // Reddit platform simulated elapsed time
 const redditElapsedTime = computed(() => {
   return formatElapsedTime(runStatus.value.reddit_current_round || 0)
-})
-
-// Polymarket platform simulated elapsed time
-const polymarketElapsedTime = computed(() => {
-  return formatElapsedTime(runStatus.value.polymarket_current_round || 0)
 })
 
 // Methods
@@ -863,13 +795,6 @@ const getActionTypeLabel = (type) => {
     'QUOTE_POST': 'QUOTE',
     'UPVOTE_POST': 'UPVOTE',
     'DOWNVOTE_POST': 'DOWNVOTE',
-    // Polymarket
-    'BUY_SHARES': 'BUY',
-    'SELL_SHARES': 'SELL',
-    'CREATE_MARKET': 'NEW MARKET',
-    'BROWSE_MARKETS': 'BROWSE',
-    'VIEW_PORTFOLIO': 'PORTFOLIO',
-    'COMMENT_ON_MARKET': 'COMMENT',
   }
   return labels[type] || type || 'UNKNOWN'
 }
@@ -890,25 +815,8 @@ const getActionTypeClass = (type) => {
     'DISLIKE_COMMENT': 'badge-action',
     'MUTE': 'badge-meta',
     'DO_NOTHING': 'badge-idle',
-    // Polymarket
-    'BUY_SHARES': 'badge-trade-buy',
-    'SELL_SHARES': 'badge-trade-sell',
-    'CREATE_MARKET': 'badge-post',
-    'BROWSE_MARKETS': 'badge-meta',
-    'VIEW_PORTFOLIO': 'badge-meta',
-    'COMMENT_ON_MARKET': 'badge-comment',
   }
   return classes[type] || 'badge-default'
-}
-
-const formatShares = (n) => {
-  if (n == null) return '?'
-  return Number(n).toFixed(1)
-}
-
-const formatPrice = (n) => {
-  if (n == null) return '?'
-  return Number(n).toFixed(2)
 }
 
 const truncateContent = (content, maxLength = 100) => {
@@ -1565,7 +1473,6 @@ onUnmounted(() => {
 .breakdown-divider { color: rgba(10,10,10,0.2); }
 .breakdown-item.twitter, .filter-name.twitter { color: #0A0A0A; }
 .breakdown-item.reddit, .filter-name.reddit { color: #FF6B1A; }
-.breakdown-item.polymarket, .filter-name.polymarket { color: #FF6B1A; }
 
 /* --- Timeline Feed --- */
 .timeline-feed {
@@ -1617,10 +1524,8 @@ onUnmounted(() => {
 
 .timeline-item.twitter .marker-dot { background: #0A0A0A; }
 .timeline-item.reddit .marker-dot { background: #FF6B1A; }
-.timeline-item.polymarket .marker-dot { background: #FF6B1A; }
 .timeline-item.twitter .timeline-marker { border-color: #0A0A0A; }
 .timeline-item.reddit .timeline-marker { border-color: #FF6B1A; }
-.timeline-item.polymarket .timeline-marker { border-color: #FF6B1A; }
 
 /* Card Layout */
 .timeline-card {
@@ -1638,8 +1543,7 @@ onUnmounted(() => {
 
 /* All platforms flow in single column */
 .timeline-item.twitter,
-.timeline-item.reddit,
-.timeline-item.polymarket {
+.timeline-item.reddit {
   justify-content: flex-start;
 }
 .timeline-item .timeline-card {
@@ -1649,7 +1553,6 @@ onUnmounted(() => {
 
 .timeline-item.twitter .timeline-card { border-left: 2px solid #0A0A0A; }
 .timeline-item.reddit .timeline-card { border-left: 2px solid #FF6B1A; }
-.timeline-item.polymarket .timeline-card { border-left: 2px solid #FF6B1A; }
 
 /* Card Content Styles */
 .card-header {
@@ -1711,8 +1614,7 @@ onUnmounted(() => {
   color: #FAFAFA;
 }
 
-.platform-indicator.reddit,
-.platform-indicator.polymarket {
+.platform-indicator.reddit {
   background: none;
 }
 
@@ -1738,45 +1640,6 @@ onUnmounted(() => {
 .badge-action { background: #FAFAFA; color: rgba(10,10,10,0.5); border: 1px solid rgba(10,10,10,0.12); }
 .badge-meta { background: #FAFAFA; color: rgba(10,10,10,0.4); border: 1px dashed rgba(10,10,10,0.2); }
 .badge-idle { opacity: 0.5; }
-.badge-trade-buy { background: rgba(67,193,101,0.1); color: #43C165; border-color: rgba(67,193,101,0.2); }
-.badge-trade-sell { background: rgba(255,68,68,0.1); color: #FF4444; border-color: rgba(255,68,68,0.2); }
-
-/* Polymarket trade cards */
-.trade-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-mono, 'Space Mono', monospace);
-  font-size: 12px;
-  flex-wrap: wrap;
-}
-
-.trade-direction {
-  font-family: var(--font-mono, 'Space Mono', monospace);
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
-  letter-spacing: 3px;
-}
-.trade-direction.buy { background: rgba(67,193,101,0.1); color: #43C165; }
-.trade-direction.sell { background: rgba(255,68,68,0.1); color: #FF4444; }
-
-.trade-detail { color: rgba(10,10,10,0.7); }
-.trade-cost { color: rgba(10,10,10,0.4); font-size: 11px; }
-.trade-total { color: rgba(10,10,10,0.7); font-weight: 600; font-size: 11px; }
-
-.market-question {
-  font-size: 12px;
-  color: rgba(10,10,10,0.7);
-  font-style: italic;
-}
-
-.market-ref {
-  font-family: var(--font-mono, 'Space Mono', monospace);
-  font-size: 10px;
-  color: rgba(10,10,10,0.4);
-  margin-top: 2px;
-}
 
 .content-text {
   font-size: 13px;

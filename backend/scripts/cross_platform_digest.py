@@ -40,13 +40,6 @@ _ACTION_LABELS = {
     'CREATE_COMMENT': 'commented',
     'LIKE_COMMENT': 'liked a comment',
     'DISLIKE_COMMENT': 'disliked a comment',
-    # Polymarket actions (for future use)
-    'buy_shares': 'bought shares',
-    'sell_shares': 'sold shares',
-    'create_market': 'created a prediction market',
-    'comment_on_market': 'commented on a market',
-    'browse_markets': 'browsed markets',
-    'view_portfolio': 'checked portfolio',
 }
 
 # Max content preview length in digest
@@ -73,7 +66,7 @@ class CrossPlatformLog:
         Record a batch of actions from one platform round.
 
         Args:
-            platform: Platform name ("twitter", "reddit", "polymarket", ...)
+            platform: Platform name ("twitter", "reddit", ...)
             actions: List of action dicts, each with at least:
                      agent_id, agent_name, action_type, action_args
         """
@@ -176,14 +169,6 @@ class CrossPlatformLog:
         )
         if target:
             return f"{label} by {target}"
-
-        # For Polymarket-style actions
-        if 'market_id' in args:
-            outcome = args.get('outcome', '')
-            amount = args.get('amount_usd') or args.get('num_shares', '')
-            if amount:
-                return f"{label} — market #{args['market_id']}, {outcome} (${amount})"
-            return f"{label} — market #{args['market_id']}"
 
         return label
 

@@ -43,7 +43,7 @@ class OasisAgentProfile:
     follower_count: int = 150
     statuses_count: int = 500
     
-    # Polymarket-specific fields
+    # Risk/engagement fields (used for agent behavior calibration)
     risk_tolerance: str = "moderate"  # "high", "moderate", or "low"
 
     # B2B email inbox simulation fields
@@ -147,25 +147,6 @@ class OasisAgentProfile:
             "inbox_habit": self.inbox_habit,
             "pain_signal_sensitivity": self.pain_signal_sensitivity,
             "decision_style": self.decision_style,
-        }
-
-    def to_polymarket_format(self) -> Dict[str, Any]:
-        """Convert to Polymarket prediction market format.
-
-        Returns a dict compatible with Wonderwall's UserInfo(profile={"other_info": ...})
-        structure, which PolymarketPromptBuilder reads to build trader personas.
-        """
-        # Build the user_profile text from persona + profession context
-        user_profile = self.persona or f"{self.name} participates in prediction markets."
-        if self.profession:
-            user_profile = f"{self.profession}. {user_profile}"
-
-        return {
-            "user_id": self.user_id,
-            "name": self.user_name,
-            "description": self.bio or f"Prediction market trader: {self.name}",
-            "risk_tolerance": self.risk_tolerance,
-            "user_profile": user_profile,
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -432,11 +413,11 @@ class OasisProfileGenerator:
     @staticmethod
     def _infer_risk_tolerance(entity_type: str, mbti: Optional[str], profession: Optional[str],
                               entity_name: str = "") -> str:
-        """Infer risk tolerance from entity characteristics for Polymarket profiles."""
+        """Infer risk tolerance from entity characteristics."""
         # Check entity name for domain-specific hints
         name_lower = (entity_name or "").lower()
         if any(w in name_lower for w in ("hedge fund", "venture", "trading", "capital",
-                                          "defi", "prediction market", "polymarket", "augur")):
+                                          "defi")):
             return "high"
         if any(w in name_lower for w in ("stablecoin", "usdc", "usdt", "reserve", "treasury")):
             return "low"
@@ -1338,21 +1319,19 @@ Do NOT include karma, friend_count, follower_count, or statuses_count.
         platform: str = "reddit"
     ):
         """
-        Save profiles to file (choose correct format based on platform)
+        Save profiles to file (choose correct format based on platform).
 
         OASIS platform format requirements:
         - Twitter: CSV format
-        - Reddit: JSON format
+        - Reddit: JSON format (default)
 
         Args:
             profiles: List of profiles
             file_path: File path
-            platform: Platform type ("reddit" or "twitter")
+            platform: Platform type ("twitter" or "reddit")
         """
         if platform == "twitter":
             self._save_twitter_csv(profiles, file_path)
-        elif platform == "polymarket":
-            self._save_polymarket_json(profiles, file_path)
         else:
             self._save_reddit_json(profiles, file_path)
     
@@ -1475,25 +1454,6 @@ Do NOT include karma, friend_count, follower_count, or statuses_count.
             json.dump(data, f, ensure_ascii=False, indent=2)
         
         logger.info(f"Saved {len(profiles)} Reddit Profiles to {file_path} (JSON format, includes user_id field)")
-
-    def _save_polymarket_json(self, profiles: List[OasisAgentProfile], file_path: str):
-        """
-        Save Polymarket profiles as JSON format.
-
-        Each entry matches the structure expected by Wonderwall's UserInfo:
-        UserInfo(name=..., description=..., profile={"other_info": {"user_profile": ..., "risk_tolerance": ...}})
-        """
-        data = []
-        for idx, profile in enumerate(profiles):
-            pm = profile.to_polymarket_format()
-            # Override user_id to ensure sequential ordering
-            pm["user_id"] = profile.user_id if profile.user_id is not None else idx
-            data.append(pm)
-
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-        logger.info(f"Saved {len(profiles)} Polymarket profiles to {file_path}")
 
     # Keep old method name as alias for backward compatibility
     def save_profiles_to_json(

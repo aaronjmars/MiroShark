@@ -615,38 +615,23 @@ Contradictions reveal tension points, evolving relationships, or conflicting nar
 
 TOOL_DESC_SIMULATION_FEED = """\
 [Simulation Feed - MOST IMPORTANT TOOL - Read Actual Simulation Output]
-Reads the actual posts, comments, and trades that agents produced during the simulation.
+Reads the actual posts, comments, and actions that agents produced during the simulation.
 THIS IS YOUR PRIMARY DATA SOURCE. The simulation feed contains what agents actually said
-and did on Twitter, Reddit, and Polymarket. Use this BEFORE graph search tools.
+and did on Twitter and Reddit. Use this BEFORE graph search tools.
 
 [Parameters]
-- platform: "twitter", "reddit", "polymarket", or "all" (default "all")
-- query: Optional keyword filter (e.g., "regulation", "CFTC")
+- platform: "twitter", "reddit", or "all" (default "all")
+- query: Optional keyword filter (e.g., "regulation", "layoffs")
 - round_num: Optional round number filter (e.g., 3 for round 3 only)
 
 [Return Content]
 - Actual posts and comments agents wrote (with agent names)
-- Polymarket trades (who bought/sold what, at what price)
-- Market price movements
 - Action type breakdown per platform
 
 [Use Cases]
 - Quote what specific agents said on Twitter/Reddit
-- Analyze how market prices moved and who drove the movement
 - Find the most viral/liked posts
-- Compare what agents said on social media vs how they traded
 - Track how discourse evolved across rounds"""
-
-TOOL_DESC_MARKET_STATE = """\
-[Market State - Polymarket Final State]
-Returns the current state of all prediction markets: prices, trade history,
-and trader portfolios with P&L.
-
-[Return Content]
-- Market questions with current YES/NO prices
-- Complete trade history (who bought/sold, prices, amounts)
-- Trader portfolios with cash, positions, and profit/loss
-- Price movement from initial to final"""
 
 # ── Outline Planning Prompt ──
 
@@ -849,7 +834,6 @@ Do NOT overclaim — this is scenario exploration, not prophecy
    - **START with simulation_feed** — this is your PRIMARY data source. It contains
      the actual posts, comments, and trades that agents produced. Read it first,
      then use other tools to dig deeper.
-   - Use market_state to get Polymarket price movements, trade history, and P&L
    - Use insight_forge for background context from the knowledge graph
    - Use analyze_trajectory for belief evolution data
    - QUOTE actual agent posts/comments — the report should cite what agents SAID
@@ -1206,16 +1190,12 @@ class ReportAgent:
                 "name": "simulation_feed",
                 "description": TOOL_DESC_SIMULATION_FEED,
                 "parameters": {
-                    "platform": "Platform to read: 'twitter', 'reddit', 'polymarket', or 'all' (default 'all')",
+                    "platform": "Platform to read: 'twitter', 'reddit', or 'all' (default 'all')",
                     "query": "Optional keyword filter for post content",
                     "round_num": "Optional round number filter"
                 }
             },
-            "market_state": {
-                "name": "market_state",
-                "description": TOOL_DESC_MARKET_STATE,
-                "parameters": {}
-            }
+        }
         }
     
     def _execute_tool(self, tool_name: str, parameters: Dict[str, Any], report_context: str = "") -> str:
@@ -1327,9 +1307,6 @@ class ReportAgent:
             elif tool_name == "simulation_feed":
                 return self._execute_simulation_feed(parameters)
 
-            elif tool_name == "market_state":
-                return self._execute_market_state()
-
             # ========== Backward compatible legacy tools (internally redirected to new tools) ==========
             
             elif tool_name == "search_graph":
@@ -1375,7 +1352,7 @@ class ReportAgent:
     VALID_TOOL_NAMES = {
         "insight_forge", "panorama_search", "quick_search", "interview_agents",
         "analyze_trajectory", "analyze_graph_structure", "find_causal_path", "detect_contradictions",
-        "simulation_feed", "market_state",
+        "simulation_feed",
     }
 
     def _execute_trajectory_analysis(self, focus: str = "all") -> str:
@@ -1486,7 +1463,7 @@ class ReportAgent:
         sim_dir = self._get_simulation_dir()
         lines = ["=== Simulation Feed ==="]
 
-        platforms = ["twitter", "reddit", "polymarket"] if platform_filter == "all" else [platform_filter]
+        platforms = ["twitter", "reddit"] if platform_filter == "all" else [platform_filter]
         total_actions = 0
 
         for platform in platforms:
@@ -1629,85 +1606,6 @@ class ReportAgent:
                     lines.append("No .jsonl files found anywhere in the simulation directory.")
                 else:
                     lines.append("The simulation directory does not exist.")
-
-        return "\n".join(lines)
-
-    def _execute_market_state(self) -> str:
-        """Read Polymarket final state from SQLite."""
-        import sqlite3
-
-        sim_dir = self._get_simulation_dir()
-        db_path = os.path.join(sim_dir, "polymarket_simulation.db")
-
-        if not os.path.exists(db_path):
-            return f"No Polymarket database found at {db_path}"
-
-        lines = ["=== Polymarket Final State ==="]
-
-        try:
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
-
-            # Markets
-            for m in conn.execute("SELECT * FROM market ORDER BY market_id"):
-                ra, rb = m['reserve_a'], m['reserve_b']
-                total = ra + rb
-                price_yes = rb / total if total > 0 else 0.5
-                trades = conn.execute(
-                    "SELECT COUNT(*) FROM trade WHERE market_id=?", (m['market_id'],)
-                ).fetchone()[0]
-                lines.append(f"\n**Market #{m['market_id']}:** \"{m['question']}\"")
-                lines.append(f"  Current price: YES ${price_yes:.3f} / NO ${1-price_yes:.3f}")
-                lines.append(f"  Total trades: {trades}")
-
-            # Trade history
-            trades = conn.execute(
-                "SELECT t.*, u.user_name FROM trade t "
-                "LEFT JOIN user u ON t.user_id = u.user_id ORDER BY t.rowid"
-            ).fetchall()
-            if trades:
-                lines.append(f"\n**Trade History** ({len(trades)} trades):")
-                for t in trades:
-                    agent = t['user_name'] or f"Agent_{t['user_id']}"
-                    side = t['side'].upper()
-                    lines.append(
-                        f"  {side:4s} | {agent:30s} | {t['outcome']:3s} "
-                        f"{t['shares']:.0f} shares @ ${t['price']:.3f} "
-                        f"(${abs(t['cost']):.0f})"
-                    )
-
-            # Portfolios with P&L
-            lines.append(f"\n**Trader P&L:**")
-            for row in conn.execute(
-                "SELECT p.user_id, p.balance, u.user_name FROM portfolio p "
-                "LEFT JOIN user u ON p.user_id = u.user_id ORDER BY p.user_id"
-            ):
-                uid = row['user_id']
-                agent = row['user_name'] or f"Agent_{uid}"
-                balance = row['balance']
-
-                pos_value = 0
-                for pos in conn.execute(
-                    "SELECT pos.shares, pos.outcome, m.reserve_a, m.reserve_b, m.outcome_a "
-                    "FROM position pos JOIN market m ON pos.market_id = m.market_id "
-                    "WHERE pos.user_id = ? AND pos.shares > 0.01", (uid,)
-                ):
-                    ra, rb = pos['reserve_a'], pos['reserve_b']
-                    tot = ra + rb
-                    cp = (rb/tot) if pos['outcome'] == pos['outcome_a'] else (ra/tot)
-                    pos_value += pos['shares'] * cp
-
-                total_val = balance + pos_value
-                pnl = total_val - 1000
-                lines.append(
-                    f"  {agent:30s} | Cash: ${balance:.0f} | "
-                    f"Positions: ${pos_value:.0f} | Total: ${total_val:.0f} | "
-                    f"P&L: {'+'if pnl>=0 else ''}{pnl:.0f}"
-                )
-
-            conn.close()
-        except Exception as e:
-            lines.append(f"Error reading market data: {e}")
 
         return "\n".join(lines)
 
