@@ -39,6 +39,16 @@
         ▶ Replay
       </button>
 
+      <!-- Generate Article (when simulation has data) -->
+      <button
+        v-if="phase === 2 && allActions.length > 0"
+        class="action-btn secondary"
+        @click="openArticleDrawer"
+        title="Generate a publishable article brief from simulation results"
+      >
+        ✍ Article
+      </button>
+
       <!-- Influence Leaderboard toggle -->
       <button
         v-if="allActions.length > 0"
@@ -404,6 +414,53 @@
         </div>
       </div>
     </div>
+
+    <!-- Article Drawer Overlay -->
+    <Transition name="article-drawer">
+      <div v-if="showArticleDrawer" class="article-drawer-overlay" @click.self="showArticleDrawer = false">
+        <div class="article-drawer">
+          <div class="article-drawer-header">
+            <span class="article-drawer-title">Generated Article</span>
+            <div class="article-drawer-actions">
+              <button
+                class="article-action-btn"
+                :disabled="isGeneratingArticle || !articleText"
+                @click="copyArticle"
+                :title="articleCopied ? 'Copied!' : 'Copy to clipboard'"
+              >{{ articleCopied ? 'Copied!' : 'Copy' }}</button>
+              <button
+                class="article-action-btn"
+                :disabled="isGeneratingArticle || !articleText"
+                @click="downloadArticle"
+                title="Download as .md"
+              >Download .md</button>
+              <button class="article-close-btn" @click="showArticleDrawer = false">✕</button>
+            </div>
+          </div>
+
+          <div class="article-drawer-body">
+            <!-- Loading state -->
+            <div v-if="isGeneratingArticle" class="article-loading">
+              <div class="article-loading-spinner"></div>
+              <span>Generating article from simulation data...</span>
+            </div>
+
+            <!-- Error state -->
+            <div v-else-if="articleError" class="article-error">
+              <span class="article-error-msg">{{ articleError }}</span>
+              <button class="article-action-btn" @click="generateArticle">Retry</button>
+            </div>
+
+            <!-- Article content -->
+            <div
+              v-else-if="articleText"
+              class="article-content generated-content"
+              v-html="renderArticleMarkdown(articleText)"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -415,7 +472,8 @@ import {
   stopSimulation,
   resumeSimulation,
   getRunStatus,
-  getRunStatusDetail
+  getRunStatusDetail,
+  generateSimulationArticle
 } from '../api/simulation'
 import { generateReport } from '../api/report'
 import InfluenceLeaderboard from './InfluenceLeaderboard.vue'
@@ -452,6 +510,13 @@ const monitorCollapsed = ref(false)
 const filteredAgent = ref(null)
 const filteredPlatform = ref(null)
 const showInfluence = ref(false)
+
+// Article drawer state
+const showArticleDrawer = ref(false)
+const articleText = ref('')
+const isGeneratingArticle = ref(false)
+const articleError = ref(null)
+const articleCopied = ref(false)
 
 const filterByAgent = (agentName) => {
   filteredAgent.value = filteredAgent.value === agentName ? null : agentName
@@ -1045,6 +1110,84 @@ const tryResumeOrStart = async () => {
   }
 
   doStartSimulation()
+}
+
+const openArticleDrawer = () => {
+  showArticleDrawer.value = true
+  if (!articleText.value && !isGeneratingArticle.value) {
+    generateArticle()
+  }
+}
+
+const generateArticle = async () => {
+  if (!props.simulationId || isGeneratingArticle.value) return
+  isGeneratingArticle.value = true
+  articleError.value = null
+  try {
+    const res = await generateSimulationArticle(props.simulationId)
+    if (res.success && res.data?.article_text) {
+      articleText.value = res.data.article_text
+    } else {
+      articleError.value = res.error || 'Failed to generate article.'
+    }
+  } catch (err) {
+    articleError.value = err?.message || 'Network error generating article.'
+  } finally {
+    isGeneratingArticle.value = false
+  }
+}
+
+const copyArticle = async () => {
+  if (!articleText.value) return
+  try {
+    await navigator.clipboard.writeText(articleText.value)
+    articleCopied.value = true
+    setTimeout(() => { articleCopied.value = false }, 1800)
+  } catch {
+    // clipboard not available
+  }
+}
+
+const downloadArticle = () => {
+  if (!articleText.value) return
+  const blob = new Blob([articleText.value], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `simulation-${props.simulationId || 'article'}.md`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+const renderArticleMarkdown = (content) => {
+  if (!content) return ''
+  let html = content.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>')
+  html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+  html = html.replace(/^#### (.+)$/gm, '<h5 class="md-h5">$1</h5>')
+  html = html.replace(/^### (.+)$/gm, '<h4 class="md-h4">$1</h4>')
+  html = html.replace(/^## (.+)$/gm, '<h3 class="md-h3">$1</h3>')
+  html = html.replace(/^# (.+)$/gm, '<h2 class="md-h2">$1</h2>')
+  html = html.replace(/^> (.+)$/gm, '<blockquote class="md-quote">$1</blockquote>')
+  html = html.replace(/^(\s*)- (.+)$/gm, (match, indent, text) => {
+    const level = Math.floor(indent.length / 2)
+    return `<li class="md-li" data-level="${level}">${text}</li>`
+  })
+  html = html.replace(/(<li class="md-li"[^>]*>.*?<\/li>\s*)+/g, '<ul class="md-ul">$&</ul>')
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>')
+  html = html.replace(/_(.+?)_/g, '<em>$1</em>')
+  html = html.replace(/^---$/gm, '<hr class="md-hr">')
+  html = html.replace(/\n\n/g, '</p><p class="md-p">')
+  html = html.replace(/\n/g, '<br>')
+  html = '<p class="md-p">' + html + '</p>'
+  html = html.replace(/<p class="md-p"><\/p>/g, '')
+  html = html.replace(/<p class="md-p">(<h[2-5])/g, '$1')
+  html = html.replace(/(<\/h[2-5]>)<\/p>/g, '$1')
+  html = html.replace(/<p class="md-p">(<ul|<blockquote|<pre|<hr)/g, '$1')
+  html = html.replace(/(<\/ul>|<\/blockquote>|<\/pre>)<\/p>/g, '$1')
+  html = html.replace(/<br>\s*(<ul|<blockquote)/g, '$1')
+  html = html.replace(/(<\/ul>|<\/blockquote>)\s*<br>/g, '$1')
+  return html
 }
 
 onMounted(() => {
@@ -1955,4 +2098,163 @@ onUnmounted(() => {
   animation: spin 0.8s linear infinite;
   margin-right: 6px;
 }
+
+/* ---- Article Drawer ---- */
+.article-drawer-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10,10,10,0.45);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.article-drawer {
+  width: 100%;
+  max-width: 780px;
+  max-height: 75vh;
+  background: #FAFAFA;
+  border-top: 2px solid rgba(10,10,10,0.1);
+  border-left: 2px solid rgba(10,10,10,0.08);
+  border-right: 2px solid rgba(10,10,10,0.08);
+  border-radius: 8px 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.article-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(10,10,10,0.08);
+  background: #F5F5F5;
+  flex-shrink: 0;
+}
+
+.article-drawer-title {
+  font-family: var(--font-mono, 'Space Mono', monospace);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #0A0A0A;
+}
+
+.article-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.article-action-btn {
+  font-family: var(--font-mono, 'Space Mono', monospace);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid rgba(10,10,10,0.2);
+  border-radius: 3px;
+  cursor: pointer;
+  color: #0A0A0A;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.article-action-btn:hover:not(:disabled) {
+  background: #0A0A0A;
+  color: #FAFAFA;
+  border-color: #0A0A0A;
+}
+
+.article-action-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.article-close-btn {
+  font-size: 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: rgba(10,10,10,0.4);
+  line-height: 1;
+  padding: 4px 6px;
+  transition: color 0.15s;
+}
+
+.article-close-btn:hover { color: #0A0A0A; }
+
+.article-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+.article-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 40px 0;
+  color: rgba(10,10,10,0.45);
+  font-family: var(--font-mono, 'Space Mono', monospace);
+  font-size: 12px;
+}
+
+.article-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid rgba(10,10,10,0.12);
+  border-top-color: #FF6B1A;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.article-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 0;
+}
+
+.article-error-msg {
+  font-family: var(--font-mono, 'Space Mono', monospace);
+  font-size: 12px;
+  color: #e53e3e;
+  text-align: center;
+}
+
+.article-content {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #0A0A0A;
+}
+
+/* Transition for drawer */
+.article-drawer-enter-active, .article-drawer-leave-active {
+  transition: opacity 0.2s ease;
+}
+.article-drawer-enter-active .article-drawer,
+.article-drawer-leave-active .article-drawer {
+  transition: transform 0.25s ease;
+}
+.article-drawer-enter-from, .article-drawer-leave-to { opacity: 0; }
+.article-drawer-enter-from .article-drawer,
+.article-drawer-leave-to .article-drawer { transform: translateY(100%); }
+
+/* Markdown styles for article content */
+.article-content :deep(.md-h2) { font-size: 1.25em; font-weight: 700; margin: 1.2em 0 0.5em; }
+.article-content :deep(.md-h3) { font-size: 1.1em; font-weight: 700; margin: 1em 0 0.4em; }
+.article-content :deep(.md-p) { margin: 0.6em 0; }
+.article-content :deep(.md-ul) { margin: 0.5em 0 0.5em 1.2em; padding: 0; }
+.article-content :deep(.md-li) { margin: 0.3em 0; list-style-type: disc; }
+.article-content :deep(.md-hr) { border: none; border-top: 1px solid rgba(10,10,10,0.1); margin: 1em 0; }
+.article-content :deep(.md-quote) { border-left: 3px solid #FF6B1A; margin: 0.8em 0; padding: 4px 12px; color: rgba(10,10,10,0.6); font-style: italic; }
 </style>

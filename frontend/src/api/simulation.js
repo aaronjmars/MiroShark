@@ -252,3 +252,12 @@ export const forkSimulation = (data) => {
   return requestWithRetry(() => service.post('/api/simulation/fork', data), 3, 1000)
 }
 
+/**
+ * Generate a publishable article brief from simulation results (cached).
+ * @param {string} simulationId
+ * @param {Object} options - { force_regenerate?, share_url? }
+ */
+export const generateSimulationArticle = (simulationId, options = {}) => {
+  return service.post(`/api/simulation/${simulationId}/article`, options)
+}
+

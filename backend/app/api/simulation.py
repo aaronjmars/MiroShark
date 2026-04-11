@@ -3288,3 +3288,181 @@ def compare_simulations():
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
+
+
+# ============== Article Generator ==============
+
+@simulation_bp.route('/<simulation_id>/article', methods=['POST'])
+def generate_simulation_article(simulation_id: str):
+    """
+    Generate a 400-600 word publishable article brief from simulation results.
+
+    Returns a Substack-style article with abstract, key findings, market dynamics,
+    implications, and a caveats paragraph. Result is cached in generated_article.json
+    inside the simulation directory so re-opening the drawer does not re-call the LLM.
+
+    Request body (JSON, optional):
+        {
+            "force_regenerate": false,    // Re-generate even if cached
+            "share_url": "https://..."    // Optional share permalink to append
+        }
+
+    Returns:
+        {
+            "success": true,
+            "data": {
+                "article_text": "...",
+                "cached": false
+            }
+        }
+    """
+    try:
+        body = request.get_json(silent=True) or {}
+        force_regenerate = body.get('force_regenerate', False)
+        share_url = body.get('share_url', '')
+
+        sim_dir = os.path.join(Config.WONDERWALL_SIMULATION_DATA_DIR, simulation_id)
+        if not os.path.exists(sim_dir):
+            return jsonify({
+                "success": False,
+                "error": f"Simulation not found: {simulation_id}"
+            }), 404
+
+        # --- Cache check ---
+        cache_path = os.path.join(sim_dir, 'generated_article.json')
+        if not force_regenerate and os.path.exists(cache_path):
+            try:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    cached = json.load(f)
+                return jsonify({
+                    "success": True,
+                    "data": {
+                        "article_text": cached.get('article_text', ''),
+                        "cached": True
+                    }
+                })
+            except Exception:
+                pass  # corrupt cache — fall through to regenerate
+
+        # --- Gather context ---
+        manager = SimulationManager()
+        state = manager.get_simulation(simulation_id)
+        config = manager.get_simulation_config(simulation_id)
+
+        scenario = ''
+        if config:
+            scenario = config.get('simulation_requirement', '')
+        if not scenario and state:
+            scenario = getattr(state, 'simulation_requirement', '') or ''
+
+        run_state = SimulationRunner.get_run_state(simulation_id)
+        total_rounds = 0
+        agent_count = 0
+        if run_state:
+            total_rounds = run_state.current_round
+        if state:
+            agent_count = state.profiles_count
+
+        # Top 5 most active rounds from timeline
+        timeline = SimulationRunner.get_timeline(simulation_id)
+        top_rounds = sorted(timeline, key=lambda r: r['total_actions'], reverse=True)[:5]
+        top_rounds_summary = ', '.join(
+            f"round {r['round_num']} ({r['total_actions']} actions)"
+            for r in top_rounds
+        )
+
+        # Top 3 influence leaders
+        leaders = _compute_influence_ranked(simulation_id, top_n=3)
+        leader_lines = []
+        for agent in leaders:
+            name = agent.get('agent_name', 'Unknown')
+            score = agent.get('score', 0)
+            posts = agent.get('posts_created', 0)
+            engagement = agent.get('engagement_received', 0)
+            leader_lines.append(
+                f"- {name}: influence score {score}, {posts} posts, {engagement} engagements received"
+            )
+        leaders_text = '\n'.join(leader_lines) if leader_lines else 'No agent data available.'
+
+        # Market price from Polymarket DB (if enabled)
+        market_summary = ''
+        polymarket_db = os.path.join(sim_dir, 'polymarket', 'polymarket.db')
+        if os.path.exists(polymarket_db):
+            try:
+                import sqlite3
+                con = sqlite3.connect(polymarket_db)
+                cur = con.cursor()
+                tables = {r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                if 'market' in tables:
+                    rows = cur.execute("SELECT id, reserve_yes, reserve_no FROM market").fetchall()
+                    market_lines = []
+                    for mid, ry, rn in rows:
+                        total = (ry or 0) + (rn or 0)
+                        price_yes = round((rn / total) * 100, 1) if total > 0 else 50.0
+                        market_lines.append(f"Market {mid}: {price_yes}% YES")
+                    market_summary = '; '.join(market_lines)
+                con.close()
+            except Exception:
+                pass
+
+        market_context = (
+            f"\nPrediction market final prices: {market_summary}"
+            if market_summary else ""
+        )
+
+        share_cta = (
+            f"\n\nExplore this simulation yourself: {share_url}"
+            if share_url else ""
+        )
+
+        # --- LLM call ---
+        from ..utils.llm_client import create_smart_llm_client
+
+        prompt = f"""You are writing a simulation study brief in the style of a Substack post. Write 400-600 words.
+
+Simulation scenario: {scenario or 'Multi-agent social simulation'}
+Total rounds completed: {total_rounds}
+Total agents: {agent_count}
+Most active rounds: {top_rounds_summary or 'N/A'}{market_context}
+
+Top influence leaders:
+{leaders_text}
+
+Write the article with these sections:
+1. One-sentence abstract (what was simulated and why it matters)
+2. Three bullet-point key findings — be specific, use the data above (active rounds, top agents, market prices if available)
+3. One paragraph on agent dynamics (how did the top agents drive the narrative?)
+4. One paragraph on implications (what does this simulation tell us about the real-world scenario?)
+5. Two-sentence caveat about AI simulation limitations{share_cta}
+
+Return only the article text in Markdown format. Use ## for section headings. Do not include a title — start directly with the abstract."""
+
+        llm = create_smart_llm_client(timeout=120.0)
+        article_text = llm.chat(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=1200,
+        )
+
+        # --- Cache result ---
+        try:
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump({'article_text': article_text, 'generated_at': datetime.utcnow().isoformat()}, f)
+        except Exception as e:
+            logger.warning(f"Failed to cache generated article for {simulation_id}: {e}")
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "article_text": article_text,
+                "cached": False
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to generate article for {simulation_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
