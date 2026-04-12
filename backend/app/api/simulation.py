@@ -1060,14 +1060,27 @@ def get_simulation_history():
 
             # Add version number
             sim_dict["version"] = "v1.0.2"
-            
+
             # Format date
             try:
                 created_date = sim_dict.get("created_at", "")[:10]
                 sim_dict["created_date"] = created_date
             except:
                 sim_dict["created_date"] = ""
-            
+
+            # Include resolution data if it exists
+            resolution_path = os.path.join(
+                Config.WONDERWALL_SIMULATION_DATA_DIR, sim.simulation_id, "resolution.json"
+            )
+            if os.path.exists(resolution_path):
+                try:
+                    with open(resolution_path, 'r', encoding='utf-8') as _rf:
+                        sim_dict["resolution"] = json.load(_rf)
+                except Exception:
+                    sim_dict["resolution"] = None
+            else:
+                sim_dict["resolution"] = None
+
             enriched_simulations.append(sim_dict)
         
         return jsonify({
@@ -3283,6 +3296,145 @@ def compare_simulations():
 
     except Exception as e:
         logger.error(f"Failed to compare simulations: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
+# ============== Prediction Resolution Endpoint ==============
+
+@simulation_bp.route('/<simulation_id>/resolve', methods=['POST'])
+def resolve_simulation(simulation_id: str):
+    """
+    Record the real-world outcome of a simulation prediction.
+
+    Body:
+        {
+            "actual_outcome": "YES" | "NO",    // Required
+            "notes": "Optional context"         // Optional
+        }
+
+    Reads the Polymarket price data (if available) to determine whether the
+    agent consensus correctly predicted the outcome, then writes resolution.json
+    to the simulation directory.
+
+    accuracy_score:
+        1.0  — agent consensus matched actual outcome
+        0.5  — market was split (price_yes within 0.05 of 0.5)
+        0.0  — agent consensus was wrong
+        null — no Polymarket data available to compute consensus
+
+    Returns:
+        {
+            "success": true,
+            "data": {
+                "simulation_id": "sim_xxxx",
+                "actual_outcome": "YES",
+                "predicted_consensus": "YES",   // null if no market data
+                "predicted_confidence": 0.78,   // null if no market data
+                "accuracy_score": 1.0,          // null if no market data
+                "notes": "...",
+                "resolved_at": "2026-04-12T..."
+            }
+        }
+    """
+    import sqlite3
+
+    try:
+        data = request.get_json(force=True) or {}
+        actual_outcome = (data.get("actual_outcome") or "").strip().upper()
+        notes = data.get("notes", "")
+
+        if actual_outcome not in ("YES", "NO"):
+            return jsonify({
+                "success": False,
+                "error": "actual_outcome must be 'YES' or 'NO'"
+            }), 400
+
+        manager = SimulationManager()
+        state = manager.get_simulation(simulation_id)
+        if not state:
+            return jsonify({
+                "success": False,
+                "error": f"Simulation not found: {simulation_id}"
+            }), 404
+
+        sim_dir = os.path.join(Config.WONDERWALL_SIMULATION_DATA_DIR, simulation_id)
+
+        # Attempt to read final Polymarket consensus from the SQLite database
+        predicted_consensus = None
+        predicted_confidence = None
+        accuracy_score = None
+
+        db_path = os.path.join(sim_dir, 'polymarket', 'polymarket.db')
+        if os.path.exists(db_path):
+            try:
+                con = sqlite3.connect(db_path)
+                cur = con.cursor()
+                tables = {r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+                final_price_yes = None
+
+                if 'price_history' in tables:
+                    # Read the latest round's price for the first market
+                    row = cur.execute(
+                        "SELECT price_yes FROM price_history ORDER BY round_num DESC, market_id LIMIT 1"
+                    ).fetchone()
+                    if row:
+                        final_price_yes = row[0]
+                elif 'market' in tables:
+                    row = cur.execute(
+                        "SELECT reserve_yes, reserve_no FROM market LIMIT 1"
+                    ).fetchone()
+                    if row:
+                        ry, rn = row
+                        total = (ry or 0) + (rn or 0)
+                        if total > 0:
+                            final_price_yes = rn / total  # price_yes = reserve_no / total (Wonderwall AMM)
+
+                con.close()
+
+                if final_price_yes is not None:
+                    predicted_confidence = round(float(final_price_yes), 4)
+                    if abs(final_price_yes - 0.5) <= 0.05:
+                        # Split market — too close to call
+                        predicted_consensus = None
+                        accuracy_score = 0.5
+                    elif final_price_yes > 0.5:
+                        predicted_consensus = "YES"
+                        accuracy_score = 1.0 if actual_outcome == "YES" else 0.0
+                    else:
+                        predicted_consensus = "NO"
+                        accuracy_score = 1.0 if actual_outcome == "NO" else 0.0
+
+            except Exception as e:
+                logger.warning(f"Could not read Polymarket data for {simulation_id}: {e}")
+
+        resolution = {
+            "simulation_id": simulation_id,
+            "actual_outcome": actual_outcome,
+            "predicted_consensus": predicted_consensus,
+            "predicted_confidence": predicted_confidence,
+            "accuracy_score": accuracy_score,
+            "notes": notes,
+            "resolved_at": datetime.now().isoformat(),
+        }
+
+        resolution_path = os.path.join(sim_dir, "resolution.json")
+        with open(resolution_path, 'w', encoding='utf-8') as f:
+            json.dump(resolution, f, ensure_ascii=False, indent=2)
+
+        logger.info(f"Prediction resolved for {simulation_id}: actual={actual_outcome}, score={accuracy_score}")
+
+        return jsonify({
+            "success": True,
+            "data": resolution
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to resolve simulation: {str(e)}")
         return jsonify({
             "success": False,
             "error": str(e),

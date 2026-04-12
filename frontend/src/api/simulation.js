@@ -252,3 +252,12 @@ export const forkSimulation = (data) => {
   return requestWithRetry(() => service.post('/api/simulation/fork', data), 3, 1000)
 }
 
+/**
+ * Record the real-world outcome of a simulation prediction.
+ * @param {string} simulationId
+ * @param {Object} data - { actual_outcome: 'YES' | 'NO', notes?: string }
+ */
+export const resolveSimulation = (simulationId, data) => {
+  return service.post(`/api/simulation/${simulationId}/resolve`, data)
+}
+

@@ -10,6 +10,16 @@
       <div class="gradient-overlay"></div>
     </div>
 
+    <!-- Track Record Summary (shown when any simulation has been resolved) -->
+    <div v-if="trackRecord" class="track-record-bar">
+      <span class="track-record-label">Track Record</span>
+      <span class="track-record-stat">{{ trackRecord.total }} resolved</span>
+      <span v-if="trackRecord.overallAccuracy !== null" class="track-record-accuracy" :class="trackRecord.overallAccuracy >= 60 ? 'good' : 'poor'">
+        {{ trackRecord.overallAccuracy }}% accurate
+      </span>
+      <span v-if="trackRecord.correct > 0" class="track-record-correct">{{ trackRecord.correct }} correct</span>
+    </div>
+
     <!-- Title Area -->
     <div class="section-header">
       <div class="section-line"></div>
@@ -44,6 +54,17 @@
               class="fork-badge"
               :title="`Forked from ${formatSimulationId(project.parent_simulation_id)}`"
             >⑂</span>
+            <span
+              v-if="project.resolution"
+              class="resolution-badge"
+              :class="project.resolution.accuracy_score >= 1.0 ? 'correct' : project.resolution.accuracy_score <= 0.0 && project.resolution.accuracy_score !== null ? 'wrong' : 'neutral'"
+              :title="getResolutionLabel(project)?.text"
+            >{{ project.resolution.accuracy_score >= 1.0 ? '✓' : project.resolution.accuracy_score <= 0.0 && project.resolution.accuracy_score !== null ? '✗' : '○' }}</span>
+            <span
+              v-else-if="project.status === 'completed'"
+              class="resolution-badge pending"
+              title="Awaiting outcome resolution"
+            >⏳</span>
             <span
               class="status-icon"
               :class="{ available: project.project_id, unavailable: !project.project_id }"
@@ -229,6 +250,63 @@
               <span class="hint-text">Select a step to replay from the simulation history</span>
             </div>
 
+            <!-- Resolve Prediction Section (completed simulations only) -->
+            <div v-if="selectedProject.status === 'completed' || selectedProject.current_round > 0" class="modal-resolve-section">
+              <div class="modal-divider">
+                <span class="divider-line"></span>
+                <span class="divider-text">Prediction Outcome</span>
+                <span class="divider-line"></span>
+              </div>
+
+              <!-- Already resolved: show result -->
+              <div v-if="selectedProject.resolution && !showResolvePanel" class="resolve-result">
+                <div class="resolve-result-row">
+                  <span class="resolve-label">Actual Outcome</span>
+                  <span class="resolve-value outcome-badge" :class="selectedProject.resolution.actual_outcome === 'YES' ? 'yes' : 'no'">
+                    {{ selectedProject.resolution.actual_outcome }}
+                  </span>
+                </div>
+                <div v-if="selectedProject.resolution.predicted_consensus" class="resolve-result-row">
+                  <span class="resolve-label">Agent Consensus</span>
+                  <span class="resolve-value outcome-badge" :class="selectedProject.resolution.predicted_consensus === 'YES' ? 'yes' : 'no'">
+                    {{ selectedProject.resolution.predicted_consensus }}
+                    <span class="resolve-confidence">{{ Math.round(selectedProject.resolution.predicted_confidence * 100) }}%</span>
+                  </span>
+                </div>
+                <div v-if="selectedProject.resolution.accuracy_score !== null" class="resolve-result-row">
+                  <span class="resolve-label">Accuracy</span>
+                  <span class="resolve-value accuracy-value"
+                    :class="selectedProject.resolution.accuracy_score >= 1.0 ? 'correct' : selectedProject.resolution.accuracy_score <= 0.0 ? 'wrong' : 'split'">
+                    {{ selectedProject.resolution.accuracy_score >= 1.0 ? '✓ Correct' : selectedProject.resolution.accuracy_score <= 0.0 ? '✗ Incorrect' : '~ Split' }}
+                  </span>
+                </div>
+                <div v-if="selectedProject.resolution.notes" class="resolve-notes">{{ selectedProject.resolution.notes }}</div>
+                <button class="resolve-reopen-btn" @click="openResolvePanel">Re-resolve</button>
+              </div>
+
+              <!-- Not yet resolved or re-resolving -->
+              <div v-else-if="!showResolvePanel" class="resolve-intro">
+                <p class="resolve-desc">Did the simulation correctly predict what happened? Record the real-world outcome to build your accuracy track record.</p>
+                <button class="resolve-trigger-btn" @click="openResolvePanel">Record Outcome</button>
+              </div>
+
+              <div v-if="showResolvePanel" class="resolve-form">
+                <p class="resolve-form-label">What actually happened?</p>
+                <div v-if="resolveError" class="resolve-error">{{ resolveError }}</div>
+                <div class="resolve-buttons">
+                  <button class="resolve-outcome-btn yes" :disabled="resolving" @click="executeResolve('YES')">
+                    <span v-if="resolving" class="loading-spinner-small"></span>
+                    YES — It happened
+                  </button>
+                  <button class="resolve-outcome-btn no" :disabled="resolving" @click="executeResolve('NO')">
+                    <span v-if="resolving" class="loading-spinner-small"></span>
+                    NO — It didn't happen
+                  </button>
+                </div>
+                <button class="resolve-cancel-btn" @click="closeResolvePanel" :disabled="resolving">Cancel</button>
+              </div>
+            </div>
+
             <!-- Fork Section -->
             <div class="modal-fork-section">
               <div class="modal-divider">
@@ -273,7 +351,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, onActivated, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { getSimulationHistory, forkSimulation } from '../api/simulation'
+import { getSimulationHistory, forkSimulation, resolveSimulation } from '../api/simulation'
 
 const router = useRouter()
 const route = useRoute()
@@ -296,6 +374,11 @@ const showForkPanel = ref(false)
 const forkRequirement = ref('')
 const forking = ref(false)
 const forkError = ref('')
+
+// Resolve mode
+const showResolvePanel = ref(false)
+const resolving = ref(false)
+const resolveError = ref('')
 
 const toggleCompareMode = () => {
   if (compareMode.value && compareSelections.value.length === 2) {
@@ -524,6 +607,8 @@ const closeModal = () => {
   selectedProject.value = null
   showForkPanel.value = false
   forkError.value = ''
+  showResolvePanel.value = false
+  resolveError.value = ''
 }
 
 // Navigate to graph build page (Project)
@@ -628,6 +713,73 @@ const executeFork = async () => {
     forkError.value = err?.response?.data?.error || err.message || 'Fork failed'
   } finally {
     forking.value = false
+  }
+}
+
+// Compute track record from resolved simulations
+const trackRecord = computed(() => {
+  const resolved = projects.value.filter(p => p.resolution)
+  const withScore = resolved.filter(p => p.resolution.accuracy_score !== null && p.resolution.accuracy_score !== undefined)
+  if (resolved.length === 0) return null
+  const correct = withScore.filter(p => p.resolution.accuracy_score === 1.0).length
+  const overallAccuracy = withScore.length > 0 ? Math.round((correct / withScore.length) * 100) : null
+  return {
+    total: resolved.length,
+    withScore: withScore.length,
+    correct,
+    overallAccuracy,
+  }
+})
+
+// Resolution helpers
+const getResolutionLabel = (project) => {
+  const r = project.resolution
+  if (!r) return null
+  if (r.accuracy_score === null || r.accuracy_score === undefined) {
+    return { text: `Resolved: ${r.actual_outcome}`, cls: 'resolved-no-score' }
+  }
+  if (r.accuracy_score >= 1.0) {
+    const pct = r.predicted_confidence ? Math.round(r.predicted_confidence * 100) : null
+    return { text: `✓ Correct${pct ? ` — ${pct}% confident` : ''}`, cls: 'resolved-correct' }
+  }
+  if (r.accuracy_score <= 0.0) {
+    const pct = r.predicted_confidence ? Math.round(r.predicted_confidence * 100) : null
+    return { text: `✗ Incorrect${pct ? ` — ${pct}% confident` : ''}`, cls: 'resolved-wrong' }
+  }
+  return { text: '~ Split', cls: 'resolved-split' }
+}
+
+const openResolvePanel = () => {
+  resolveError.value = ''
+  showResolvePanel.value = true
+}
+
+const closeResolvePanel = () => {
+  showResolvePanel.value = false
+  resolveError.value = ''
+}
+
+const executeResolve = async (outcome) => {
+  if (!selectedProject.value) return
+  resolving.value = true
+  resolveError.value = ''
+  try {
+    const response = await resolveSimulation(selectedProject.value.simulation_id, {
+      actual_outcome: outcome,
+    })
+    if (response.success) {
+      // Patch the local project object so the UI updates without a full reload
+      selectedProject.value.resolution = response.data
+      const idx = projects.value.findIndex(p => p.simulation_id === selectedProject.value.simulation_id)
+      if (idx >= 0) projects.value[idx].resolution = response.data
+      showResolvePanel.value = false
+    } else {
+      resolveError.value = response.error || 'Resolve failed'
+    }
+  } catch (err) {
+    resolveError.value = err?.response?.data?.error || err.message || 'Resolve failed'
+  } finally {
+    resolving.value = false
   }
 }
 
@@ -1754,4 +1906,197 @@ onUnmounted(() => {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Resolution badge on history cards ── */
+.resolution-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 700;
+  border: 1px solid currentColor;
+}
+.resolution-badge.correct  { color: #22c55e; background: rgba(34,197,94,0.1); }
+.resolution-badge.wrong    { color: #ef4444; background: rgba(239,68,68,0.1); }
+.resolution-badge.neutral  { color: #a78bfa; background: rgba(167,139,250,0.1); }
+.resolution-badge.pending  { font-size: 8px; color: rgba(10,10,10,0.4); border-color: rgba(10,10,10,0.2); background: transparent; }
+
+/* ── Track Record bar ── */
+.track-record-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(10,10,10,0.08);
+  background: rgba(10,10,10,0.02);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.track-record-label {
+  font-weight: 700;
+  color: rgba(10,10,10,0.5);
+  text-transform: uppercase;
+  font-size: 9px;
+  letter-spacing: 2px;
+}
+.track-record-stat { color: rgba(10,10,10,0.6); }
+.track-record-accuracy.good  { color: #22c55e; font-weight: 600; }
+.track-record-accuracy.poor  { color: #ef4444; font-weight: 600; }
+.track-record-correct        { color: rgba(10,10,10,0.4); }
+
+/* ── Resolve modal section ── */
+.modal-resolve-section {
+  margin-top: 12px;
+  padding-top: 0;
+}
+
+.resolve-intro {
+  padding: 0 20px 16px;
+}
+.resolve-desc {
+  font-size: 12px;
+  color: rgba(10,10,10,0.55);
+  margin: 8px 0 12px;
+  line-height: 1.5;
+}
+.resolve-trigger-btn {
+  padding: 7px 16px;
+  border: 1px solid rgba(10,10,10,0.2);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(10,10,10,0.7);
+  cursor: pointer;
+  letter-spacing: 2px;
+  transition: all 0.2s;
+}
+.resolve-trigger-btn:hover {
+  border-color: rgba(10,10,10,0.5);
+  color: #0A0A0A;
+}
+
+.resolve-form {
+  padding: 0 20px 16px;
+}
+.resolve-form-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(10,10,10,0.5);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin: 8px 0 12px;
+}
+.resolve-buttons {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.resolve-outcome-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.resolve-outcome-btn.yes {
+  border-color: rgba(34,197,94,0.5);
+  background: rgba(34,197,94,0.06);
+  color: #16a34a;
+}
+.resolve-outcome-btn.yes:hover:not(:disabled) {
+  background: rgba(34,197,94,0.15);
+  border-color: #22c55e;
+}
+.resolve-outcome-btn.no {
+  border-color: rgba(239,68,68,0.5);
+  background: rgba(239,68,68,0.06);
+  color: #dc2626;
+}
+.resolve-outcome-btn.no:hover:not(:disabled) {
+  background: rgba(239,68,68,0.15);
+  border-color: #ef4444;
+}
+.resolve-outcome-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.resolve-cancel-btn {
+  padding: 6px 14px;
+  border: 1px solid rgba(10,10,10,0.12);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(10,10,10,0.4);
+  cursor: pointer;
+  letter-spacing: 2px;
+  transition: all 0.2s;
+}
+.resolve-cancel-btn:hover:not(:disabled) {
+  border-color: rgba(10,10,10,0.3);
+  color: #0A0A0A;
+}
+.resolve-cancel-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.resolve-error {
+  font-size: 11px;
+  color: #ef4444;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(239,68,68,0.3);
+  background: rgba(239,68,68,0.05);
+}
+
+/* Resolved result display */
+.resolve-result {
+  padding: 0 20px 16px;
+}
+.resolve-result-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.resolve-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(10,10,10,0.4);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  min-width: 120px;
+}
+.resolve-value { font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
+.outcome-badge { padding: 2px 8px; border: 1px solid currentColor; }
+.outcome-badge.yes { color: #16a34a; background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.4); }
+.outcome-badge.no  { color: #dc2626; background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.4); }
+.resolve-confidence { font-size: 10px; font-weight: 400; margin-left: 4px; opacity: 0.7; }
+.accuracy-value { font-size: 12px; }
+.accuracy-value.correct { color: #16a34a; }
+.accuracy-value.wrong   { color: #dc2626; }
+.accuracy-value.split   { color: #a78bfa; }
+.resolve-notes {
+  font-size: 11px;
+  color: rgba(10,10,10,0.5);
+  margin-top: 6px;
+  font-style: italic;
+}
+.resolve-reopen-btn {
+  margin-top: 10px;
+  padding: 5px 12px;
+  border: 1px solid rgba(10,10,10,0.1);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(10,10,10,0.35);
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: all 0.2s;
+}
+.resolve-reopen-btn:hover { border-color: rgba(10,10,10,0.3); color: rgba(10,10,10,0.7); }
 </style>
